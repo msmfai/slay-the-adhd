@@ -1,0 +1,8 @@
+{
+  "pck_name": "PokaYokeSpire",
+  "name": "Poka-Yoke Spire",
+  "author": "marin",
+  "description": "Mistake-proofing guards: confirm-before-you-probably-misclick. v1: end-turn-with-energy, potion reminder in elite/boss fights.",
+  "version": "0.1.0",
+  "min_game_version": "0.107.1"
+}

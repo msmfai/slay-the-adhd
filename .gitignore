@@ -1,0 +1,16 @@
+# --- .NET build output ---
+bin/
+obj/
+*.user
+
+# --- Godot editor cache ---
+.godot/
+
+# --- Packed mod artifact (built from source; not needed for this game version) ---
+*.pck
+
+# --- Bundled Godot 4.5.1 toolchain (~500 MB binary, not source) ---
+_tools/
+
+# --- OS cruft ---
+.DS_Store

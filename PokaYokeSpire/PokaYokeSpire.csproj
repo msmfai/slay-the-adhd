@@ -1,0 +1,45 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <!--
+    Godot.NET.Sdk version MUST match the game's engine (v0.107.1 → Godot 4.5.1 Mono).
+    Confirm at build time: read the version fields from the game's
+    "Slay the Spire 2.pck" header, or GodotSharp.dll's assembly version.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <RootNamespace>PokaYokeSpire</RootNamespace>
+    <!-- AssemblyName MUST equal pck_name so ModManager finds "PokaYokeSpire.dll". -->
+    <AssemblyName>PokaYokeSpire</AssemblyName>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <!--
+    Reference the game's own assemblies. Point GameDir at the install's managed
+    folder. All three ship with the game, so no NuGet needed.
+      GAME = ".../SlayTheSpire2.app/Contents/Resources/data_sts2_macos_arm64"
+  -->
+  <PropertyGroup>
+    <GameDir>$(HOME)/Library/Application Support/Steam/steamapps/common/Slay the Spire 2/SlayTheSpire2.app/Contents/Resources/data_sts2_macos_arm64</GameDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="sts2">
+      <HintPath>$(GameDir)/sts2.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(GameDir)/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- BaseLib (Alchyr) provides the config menu system. Loaded by the game at
+         runtime as a dependency (declared in mod_manifest.json); referenced here
+         only to compile against BaseLib.Config.* . -->
+    <Reference Include="BaseLib">
+      <HintPath>$(HOME)/Library/Application Support/Steam/steamapps/workshop/content/2868840/3737335127/BaseLib/BaseLib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- GodotSharp is provided by the Godot.NET.Sdk; do not copy it locally. -->
+  </ItemGroup>
+</Project>

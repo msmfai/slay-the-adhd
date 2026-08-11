@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <GameDir>$(HOME)/Library/Application Support/Steam/steamapps/common/Slay the Spire 2/SlayTheSpire2.app/Contents/Resources/data_sts2_macos_arm64</GameDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <!-- Real game assemblies + BaseLib/Harmony, so we can EXECUTE game code (instantiate
+       relic models, etc.) headless and compile the mod's own logic in for testing. -->
+  <ItemGroup>
+    <Reference Include="sts2"><HintPath>$(GameDir)/sts2.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="GodotSharp"><HintPath>$(GameDir)/GodotSharp.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(GameDir)/0Harmony.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="BaseLib"><HintPath>$(HOME)/Library/Application Support/Steam/steamapps/workshop/content/2868840/3737335127/BaseLib/BaseLib.dll</HintPath><Private>true</Private></Reference>
+  </ItemGroup>
+  <!-- Compile the mod's pure/logic source directly so it can be unit tested. -->
+  <ItemGroup>
+    <Compile Include="../PokaYokeSpire/src/Layout.cs" />
+    <Compile Include="../PokaYokeSpire/src/Relics/RelicRegistry.cs" />
+  </ItemGroup>
+</Project>
