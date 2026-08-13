@@ -14,7 +14,7 @@ namespace PokaYokeSpire.Core;
 /// features use <see cref="RunUi"/>, which additionally honours the master DisableAllOverlays switch.
 /// Runs on the game thread only (Harmony postfixes); off-thread solves never call in here.
 /// </summary>
-public static class Features
+public static class Feature
 {
     private const int DisableAfter = 5;
     private static readonly Dictionary<string, int> _failCount = new();
