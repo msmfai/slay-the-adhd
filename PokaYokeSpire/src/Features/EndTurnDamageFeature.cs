@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.addons.mega_text;        // MegaLabel (the counter's number label)
 using MegaCrit.Sts2.Core.Combat;             // CombatState
 using MegaCrit.Sts2.Core.Entities.Creatures; // Creature
 using MegaCrit.Sts2.Core.Nodes.Combat;       // NEndTurnButton, NEnergyCounter, NCreature, NTargetManager
@@ -16,14 +17,15 @@ namespace PokaYokeSpire.Features;
 ///   RIGHT (red) — offense: x = the most HP damage you can deal this turn (LethalSolver.MaxDamage),
 ///                 y = x + everything landing on enemies before your next play (ScheduledDamage).
 ///                 Hovering an enemy scopes both numbers to that enemy.
-/// The gems are SIZED TO THEIR TEXT — measured each update, sized to contain the wider string, and
-/// both forced to the same diameter — so digits always sit inside the orb. Driven by a POSTFIX on
-/// NEndTurnButton.OnCombatStateChanged (offense solve runs synchronously). Fail-open.
+/// Each gem is a FIXED ⅔-size copy of the real energy counter's own visual pieces (orb + spinning
+/// vortex + MegaLabel), tinted — so font, centering and the vortex match, and it never resizes per
+/// round. Driven by a POSTFIX on NEndTurnButton.OnCombatStateChanged (offense solve runs
+/// synchronously). Fail-open + input-safe via Feature.Run / Overlay.
 /// </summary>
 [HarmonyPatch(typeof(NEndTurnButton), "OnCombatStateChanged")]
-internal static class EndTurnDamageFeature
+internal static partial class EndTurnDamageFeature
 {
-    private sealed class Orb { public Control Gem = null!; public Control Content = null!; public Label Label = null!; public bool IsLeft; }
+    private sealed class Orb { public Control Gem = null!; public System.Action<string> SetText = null!; public bool IsLeft; }
 
     private static NEnergyCounter? _gemFor;
     private static Orb? _left, _right;
@@ -87,7 +89,7 @@ internal static class EndTurnDamageFeature
 
             WireHover();
             _rightText = RightText();
-            ApplyLayout(counter);
+            UpdateOrbs();
             _left.Gem.Visible = _right.Gem.Visible = true;
 
             if (!_logged) { _logged = true; MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] combat orbs: incoming {_leftText}, offense {_rightText}"); }
@@ -110,45 +112,12 @@ internal static class EndTurnDamageFeature
         return $"{x} / {y}";
     }
 
-    /// Measure both strings, size the gem to contain the wider one (text box inside a circle), and
-    /// apply that SAME diameter to both orbs.
-    private static void ApplyLayout(NEnergyCounter counter)
+    /// Update both gems' text (fixed size; the MegaLabel auto-sizes its font exactly like the real
+    /// energy counter). Positions were set once at build — the gems NEVER resize per round.
+    private static void UpdateOrbs()
     {
-        if (_left == null || _right == null) return;
-        _left.Label.Text = _leftText;
-        _right.Label.Text = _rightText;
-
-        var font = ThemeDB.Singleton?.FallbackFont;
-        float f = Mathf.Clamp(_orbNatural * 0.30f, 16f, 64f);
-        float wMax = Mathf.Max(MeasureWidth(font, _leftText, f), MeasureWidth(font, _rightText, f));
-        float h = f * 1.2f;
-        float d = Mathf.Sqrt(wMax * wMax + h * h) * 1.12f;   // text box's diagonal fits inside the circle
-        d = Mathf.Clamp(d, _orbNatural * 0.45f, _orbNatural * 1.4f); // floor (not a dot) + cap (never balloons)
-
-        float counterW = counter.Size.X > 1f ? counter.Size.X : _orbNatural;
-        float counterH = counter.Size.Y > 1f ? counter.Size.Y : _orbNatural;
-        ApplyOrb(_left, d, f, counterW, counterH);
-        ApplyOrb(_right, d, f, counterW, counterH);
-    }
-
-    private static void ApplyOrb(Orb o, float d, float f, float counterW, float counterH)
-    {
-        o.Gem.Size = new Vector2(d, d);
-        o.Content.Position = Vector2.Zero;
-        o.Content.Scale = new Vector2(d / _orbNatural, d / _orbNatural);
-        o.Label.Size = new Vector2(d, d);
-        o.Label.Position = Vector2.Zero;
-        o.Label.AddThemeFontSizeOverride("font_size", (int)f);
-        const float gap = 14f;
-        float x = o.IsLeft ? -(d + gap) : counterW + gap;
-        o.Gem.Position = new Vector2(x, (counterH - d) * 0.5f);
-    }
-
-    private static float MeasureWidth(Font? font, string text, float fontSize)
-    {
-        try { if (font != null) return font.GetStringSize(text, HorizontalAlignment.Left, -1f, (int)fontSize).X; }
-        catch { }
-        return text.Length * fontSize * 0.55f;
+        _left?.SetText?.Invoke(_leftText);
+        _right?.SetText?.Invoke(_rightText);
     }
 
     private static void BuildOrbs(NEnergyCounter counter)
@@ -161,55 +130,81 @@ internal static class EndTurnDamageFeature
         _right = BuildOrb(counter, "PokaYokeOffenseGem", isLeft: false, RedTint);
     }
 
-    private static Orb BuildOrb(NEnergyCounter counter, string name, bool isLeft, Color tint)
+    private static Control? Dup(NEnergyCounter counter, string field)
     {
-        var gem = new Control { Name = name, MouseFilter = Control.MouseFilterEnum.Ignore };
-
-        Control content;
-        Control? orb = null;
         try
         {
-            var srcLayers = Traverse.Create(counter).Field("_layers").GetValue<Control>();
-            if (srcLayers != null && GodotObject.IsInstanceValid(srcLayers) && srcLayers.Duplicate() is Control dup)
-            {
-                dup.Name = "Orb"; dup.Modulate = tint; dup.MouseFilter = Control.MouseFilterEnum.Ignore;
-                orb = dup;
-            }
+            var src = Traverse.Create(counter).Field(field).GetValue<Control>();
+            if (src != null && GodotObject.IsInstanceValid(src) && src.Duplicate() is Control dup) return dup;
         }
         catch { }
+        return null;
+    }
 
-        if (orb != null) content = orb;
-        else
+    /// A gem is a FIXED ⅔-size copy of the real energy counter's own visual pieces: the orb body
+    /// (_layers), the spinning vortex (_rotationLayers, re-spun by VortexSpinner exactly like the
+    /// counter's _Process), and its MegaLabel (so font + centering match), tinted, showing "x / y".
+    private static Orb BuildOrb(NEnergyCounter counter, string name, bool isLeft, Color tint)
+    {
+        float d = _orbNatural * (2f / 3f);                       // fixed diameter — never resizes
+        float scale = _orbNatural > 1f ? d / _orbNatural : 0.66f;
+        var gem = new Control { Name = name, Size = new Vector2(d, d), MouseFilter = Control.MouseFilterEnum.Ignore };
+
+        var layers = Dup(counter, "_layers");
+        if (layers != null) { layers.Modulate = tint; layers.Position = Vector2.Zero; layers.Scale = new Vector2(scale, scale); gem.AddChild(layers); }
+
+        var rot = Dup(counter, "_rotationLayers");
+        if (rot != null)
         {
-            var bg = new Panel { Size = new Vector2(_orbNatural, _orbNatural), MouseFilter = Control.MouseFilterEnum.Ignore };
-            var sb = new StyleBoxFlat
-            {
-                BgColor = new Color(0.09f, 0.11f, 0.16f, 0.9f),
-                BorderColor = new Color(Mathf.Min(tint.R, 1f), Mathf.Min(tint.G, 1f), Mathf.Min(tint.B, 1f), 1f),
-                BorderWidthLeft = 3, BorderWidthTop = 3, BorderWidthRight = 3, BorderWidthBottom = 3,
-            };
-            int r = (int)(_orbNatural * 0.5f);
-            sb.CornerRadiusTopLeft = r; sb.CornerRadiusTopRight = r; sb.CornerRadiusBottomLeft = r; sb.CornerRadiusBottomRight = r;
-            bg.AddThemeStyleboxOverride("panel", sb);
-            content = bg;
+            rot.Modulate = tint; rot.Position = Vector2.Zero; rot.Scale = new Vector2(scale, scale);
+            gem.AddChild(rot);
+            gem.AddChild(new VortexSpinner { Layers = rot });   // replicate the counter's spin
         }
-        gem.AddChild(content);
 
-        var label = new Label
+        System.Action<string> setText;
+        var srcLabel = counter.GetNodeOrNull<Control>("Label");
+        if (srcLabel != null && srcLabel.Duplicate() is MegaLabel ml)
         {
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            MouseFilter = Control.MouseFilterEnum.Ignore,
-        };
-        var font = ThemeDB.Singleton?.FallbackFont;
-        if (font != null) label.AddThemeFontOverride("font", font);
-        label.AddThemeColorOverride("font_color", Colors.White);
-        label.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f));
-        label.AddThemeConstantOverride("outline_size", 5);
-        gem.AddChild(label);
+            ml.Position = Vector2.Zero; ml.Scale = new Vector2(scale, scale); ml.SelfModulate = Colors.White;
+            gem.AddChild(ml);
+            setText = txt => { try { ml.SetTextAutoSize(txt); } catch { } };
+        }
+        else   // fallback if the MegaLabel can't be cloned
+        {
+            var lbl = new Label { Size = new Vector2(d, d), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MouseFilter = Control.MouseFilterEnum.Ignore };
+            var f = ThemeDB.Singleton?.FallbackFont; if (f != null) lbl.AddThemeFontOverride("font", f);
+            lbl.AddThemeFontSizeOverride("font_size", (int)(d * 0.3f));
+            lbl.AddThemeColorOverride("font_color", Colors.White);
+            lbl.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f));
+            lbl.AddThemeConstantOverride("outline_size", 5);
+            gem.AddChild(lbl);
+            setText = txt => { try { lbl.Text = txt; } catch { } };
+        }
+
+        const float gap = 14f;
+        float counterW = counter.Size.X > 1f ? counter.Size.X : _orbNatural;
+        float counterH = counter.Size.Y > 1f ? counter.Size.Y : _orbNatural;
+        gem.Position = new Vector2(isLeft ? -(d + gap) : counterW + gap, (counterH - d) * 0.5f);
 
         Overlay.Attach(counter, name, () => gem);   // input-safe + idempotent by construction
-        return new Orb { Gem = gem, Content = content, Label = label, IsLeft = isLeft };
+        return new Orb { Gem = gem, SetText = setText, IsLeft = isLeft };
+    }
+
+    /// Spins a cloned _rotationLayers exactly like NEnergyCounter._Process (each child faster than the
+    /// last), so the gem gets the real vortex without cloning the counter's crash-prone script.
+    private partial class VortexSpinner : Node
+    {
+        public Control? Layers;
+        public override void _Process(double delta)
+        {
+            try
+            {
+                if (Layers == null || !GodotObject.IsInstanceValid(Layers)) return;
+                for (int i = 0; i < Layers.GetChildCount(); i++)
+                    if (Layers.GetChild(i) is Control c) c.RotationDegrees += (float)delta * 30f * (i + 1);
+            }
+            catch { }
+        }
     }
 
     private static int TryHp(Creature c) { try { return c.CurrentHp; } catch { return 0; } }
@@ -229,11 +224,11 @@ internal static class EndTurnDamageFeature
 
     private static void OnCreatureHovered(NCreature c)
     {
-        try { _hoveredEnemy = c?.Entity; if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) { _rightText = RightText(); ApplyLayout(_gemFor); } } catch { }
+        try { _hoveredEnemy = c?.Entity; if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) { _rightText = RightText(); UpdateOrbs(); } } catch { }
     }
 
     private static void OnCreatureUnhovered(NCreature c)
     {
-        try { _hoveredEnemy = null; if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) { _rightText = RightText(); ApplyLayout(_gemFor); } } catch { }
+        try { _hoveredEnemy = null; if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) { _rightText = RightText(); UpdateOrbs(); } } catch { }
     }
 }
