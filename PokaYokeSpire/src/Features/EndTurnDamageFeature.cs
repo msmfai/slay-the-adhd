@@ -31,7 +31,6 @@ internal static class EndTurnDamageFeature
     private static NEnergyCounter? _gemFor;
     private static Orb? _left, _right;
     private static float _orbNatural = 100f;   // the source orb-art size the content scales from
-    private static bool _logged;
 
     private static string _leftText = "0 / 0", _rightText = "0 / 0";
 
@@ -93,7 +92,8 @@ internal static class EndTurnDamageFeature
             UpdateOrbs();
             _left.Gem.Visible = _right.Gem.Visible = true;
 
-            if (!_logged) { _logged = true; MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] combat orbs: incoming {_leftText}, offense {_rightText}"); }
+            if (Core.DebugLog.Enabled)
+                Core.DebugLog.Debug($"combat orbs: incoming '{_leftText}', offense '{_rightText}' (x/enemy [{string.Join(",", _xPerEnemy)}], sched [{string.Join(",", _schedPerEnemy)}], hover={(_hoveredEnemy != null)})");
         }
     }
 
@@ -125,7 +125,6 @@ internal static class EndTurnDamageFeature
     {
         if (_left?.Gem != null && GodotObject.IsInstanceValid(_left.Gem)) _left.Gem.QueueFree();
         if (_right?.Gem != null && GodotObject.IsInstanceValid(_right.Gem)) _right.Gem.QueueFree();
-        _logged = false;
         _orbNatural = counter.Size.X > 1f ? counter.Size.X : 100f;
         _left = BuildOrb(counter, "PokaYokeIncomingGem", isLeft: true, BlueTint);
         _right = BuildOrb(counter, "PokaYokeOffenseGem", isLeft: false, RedTint);
@@ -168,6 +167,7 @@ internal static class EndTurnDamageFeature
         }
         else
         {
+            Core.DebugLog.Warn($"gem '{name}': could not clone the counter's MegaLabel — using a plain label (font may differ)");
             var lbl = new Label { Size = new Vector2(ch, ch), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MouseFilter = Control.MouseFilterEnum.Ignore };
             var ff = ThemeDB.Singleton?.FallbackFont; if (ff != null) lbl.AddThemeFontOverride("font", ff);
             lbl.AddThemeFontSizeOverride("font_size", (int)(ch * 0.28f));
