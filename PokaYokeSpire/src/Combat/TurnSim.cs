@@ -29,14 +29,15 @@ public static class TurnSim
 
     public struct Enemy
     {
-        public int Hp, Block, Vulnerable, Weak;
+        public int Hp, Block, Vulnerable, Weak, Strength;
         public int IntentDamage, IntentHits;   // this enemy's queued attack (0 if it isn't attacking)
         public bool Alive => Hp > 0;
     }
 
     public struct Player
     {
-        public int Energy, Strength, Dexterity, Weak, Frail, Block, Vulnerable;
+        public int Energy, Strength, Dexterity, Block;
+        public int Weak, Frail, Vulnerable, Shrink;   // debuffs (presence, not magnitude)
     }
 
     /// A hand card reduced to its modeled effects. Damage &gt; 0 ⇒ it's an attack (a NonAttack otherwise,
@@ -65,14 +66,16 @@ public static class TurnSim
         public int MinHpLost;
     }
 
-    // ── damage / block math (STS pipeline) ──
-    internal static int Atk(int baseDmg, int strength, int attackerWeak, int defenderVuln)
+    // ── damage / block math (STS pipeline: (base + Σadditive) × Πmultiplicative, floored ONCE) ──
+    internal static int Atk(int baseDmg, int strength, bool weak, bool shrink, bool vuln)
     {
-        int d = baseDmg + strength;
-        if (d < 0) d = 0;
-        if (attackerWeak > 0) d = d * 3 / 4;     // Weak: −25%, floored
-        if (defenderVuln > 0) d = d * 3 / 2;     // Vulnerable: +50%, floored
-        return d;
+        decimal d = baseDmg + strength;          // additive: Strength (Vigor/etc. fold in here too)
+        if (d < 0m) d = 0m;
+        decimal m = 1m;                           // multiplicative, applied together then floored once
+        if (weak) m *= 0.75m;                     // Weak −25%
+        if (shrink) m *= 0.70m;                   // Shrink −30% (flat, not a Strength cut)
+        if (vuln) m *= 1.5m;                      // Vulnerable +50%
+        return (int)decimal.Floor(d * m);
     }
 
     internal static int Blk(int baseBlock, int dexterity, bool frail)
@@ -90,7 +93,7 @@ public static class TurnSim
         foreach (var e in enemies)
         {
             if (!e.Alive || e.IntentDamage <= 0) continue;
-            incoming += Atk(e.IntentDamage, 0, e.Weak, p.Vulnerable) * (e.IntentHits < 1 ? 1 : e.IntentHits);
+            incoming += Atk(e.IntentDamage, e.Strength, e.Weak > 0, false, p.Vulnerable > 0) * (e.IntentHits < 1 ? 1 : e.IntentHits);
         }
         int net = incoming - p.Block;
         return net < 0 ? 0 : net;
@@ -216,7 +219,7 @@ public static class TurnSim
     {
         for (int h = 0; h < hits; h++)
         {
-            int dmg = Atk(baseDmg, p.Strength, p.Weak, e.Vulnerable);
+            int dmg = Atk(baseDmg, p.Strength, p.Weak > 0, p.Shrink > 0, e.Vulnerable > 0);
             int afterBlock = dmg - e.Block;
             if (afterBlock <= 0) { e.Block -= dmg; if (e.Block < 0) e.Block = 0; continue; }
             e.Block = 0;
