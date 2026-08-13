@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using MegaCrit.Sts2.Core.Entities.Cards;      // PileType, CardPreviewMode
 using MegaCrit.Sts2.Core.Models;              // CardModel
 using MegaCrit.Sts2.Core.Nodes.Cards;         // NCard
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders; // NGridCardHolder
@@ -42,7 +43,10 @@ public static class CardDisplay
                         if (nc == null) continue;
                         var h = NGridCardHolder.Create(nc);
                         if (h == null) continue;
-                        row.AddChild(h);              // deferred build -> NCard._Ready → Reload renders it
+                        row.AddChild(h);              // in-tree now -> NCard._Ready runs Reload (portrait/frame)
+                        // …but pooled cards need the text/cost RE-rendered explicitly, exactly like the
+                        // game's NCardGrid.InitGrid does right after AddChild — else it's a "broken card".
+                        try { nc.UpdateVisuals(PileType.Deck, CardPreviewMode.Normal); } catch { }
                         holders.Add(h);
                     }
                     if (holders.Count == 0) { row.QueueFree(); DebugLog.Warn($"CardDisplay('{rowName}'): no cards rendered"); return; }
