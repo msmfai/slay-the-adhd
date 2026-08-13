@@ -47,21 +47,24 @@ public static class GameTooltip
     }
 
     /// Bind a control to show the game hover tip (title = loc <paramref name="titleKey"/>, body = literal
-    /// <paramref name="body"/>) on hover. Pass mouse filter so hover fires but clicks pass through.
-    public static void Bind(Control node, string titleKey, string body)
+    /// <paramref name="body"/>) on hover, positioned by <paramref name="alignment"/> relative to the node
+    /// (the game's own SetAlignment; None leaves it at the screen origin, so always pass Left/Right/Center).
+    /// The node is set to STOP so it consumes its own hover — otherwise the hover also propagates to its
+    /// parent (the energy counter) and that shows its energy tip too.
+    public static void Bind(Control node, string titleKey, string body, HoverTipAlignment alignment)
     {
         try
         {
             if (node == null || !GodotObject.IsInstanceValid(node)) return;
-            node.MouseFilter = Control.MouseFilterEnum.Pass;
+            node.MouseFilter = Control.MouseFilterEnum.Stop;   // consume our own hover; don't leak it to the counter
             node.MouseEntered += () =>
             {
                 try
                 {
                     EnsureLoc();
                     var tip = new HoverTip(new LocString(Table, titleKey), body ?? "");
-                    NHoverTipSet.CreateAndShow(node, tip);
-                    if (DebugLog.Enabled) DebugLog.Debug($"hovertip show: {titleKey}");
+                    NHoverTipSet.CreateAndShow(node, tip, alignment);
+                    if (DebugLog.Enabled) DebugLog.Debug($"hovertip show: {titleKey} align={alignment}");
                 }
                 catch (Exception e) { DebugLog.Error("GameTooltip.enter", e); }
             };
