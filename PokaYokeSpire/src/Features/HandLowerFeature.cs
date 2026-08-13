@@ -1,6 +1,7 @@
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Helpers;   // HandPosHelper
+using PokaYokeSpire.Core;
 
 namespace PokaYokeSpire.Features;
 
@@ -26,11 +27,10 @@ internal static class HandLowerFeature
 {
     private static void Postfix(ref Vector2 __result)
     {
-        try
-        {
-            float dy = HudLowerState.HandOffsetY;
-            if (dy != 0f) __result = new Vector2(__result.X, __result.Y + dy);
-        }
-        catch { /* fail-open: never disturb hand layout */ }
+        // ref __result can't be captured by a lambda, so the guarded body computes the offset and we
+        // apply it here — still fail-open + auto-disable via the runner.
+        float dy = 0f;
+        Feature.Run("hand-lower", () => true, () => dy = HudLowerState.HandOffsetY);
+        if (dy != 0f) __result = new Vector2(__result.X, __result.Y + dy);
     }
 }
