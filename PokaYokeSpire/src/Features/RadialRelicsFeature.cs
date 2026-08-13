@@ -51,7 +51,7 @@ internal static class RadialRelicsManager
         if (_visuals.Count == 0) return;
 
         Vector2 center = energy.Size * 0.5f; // local coords (children of the counter)
-        float radius = (float)Config.RadialRelicRadius;
+        float radius = Core.Tunables.RadialRadius;
         var nodes = _visuals.Values.Where(GodotObject.IsInstanceValid).ToList();
         int count = nodes.Count;
         for (int i = 0; i < count; i++)

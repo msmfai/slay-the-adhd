@@ -56,11 +56,13 @@ internal static class DeckUnderRewardFeature
         DeckRowLayout.Result layout = default;
         for (int iter = 0; iter < 6; iter++)
         {
-            layout = DeckRowLayout.Compute(vp.X, vp.Y, made.Count, baseW * scale, baseH * scale, rewCenterY, rewW, rewH);
+            layout = DeckRowLayout.Compute(vp.X, vp.Y, made.Count, baseW * scale, baseH * scale, rewCenterY, rewW, rewH,
+                Tunables.RewardRaise, Tunables.RewardRaise * Tunables.DeckRaiseFracOfReward,
+                Tunables.DeckFanGap, Tunables.DeckMinVisibleStep);
             var deckBox = SpatialGraph.BoundingBox("deck", layout.DeckCards);
             bool onScreen = SpatialGraph.OutOfBounds(layout.DeckCards, vp.X, vp.Y).Count == 0;
             bool clear = SpatialGraph.GroupsVerticallyClear(layout.RewardArea, deckBox, DeckRowLayout.GroupMinGap);
-            bool spaced = SpatialGraph.MinSpacingViolations(layout.DeckCards, DeckRowLayout.MinVisibleStep).Count == 0;
+            bool spaced = SpatialGraph.MinSpacingViolations(layout.DeckCards, Tunables.DeckMinVisibleStep).Count == 0;
             if ((onScreen && clear && spaced) || scale <= 0.18f) break;
             scale *= 0.85f;
         }
@@ -77,7 +79,7 @@ internal static class DeckUnderRewardFeature
         }
 
         if (cardRow != null && GodotObject.IsInstanceValid(cardRow))
-            cardRow.Position -= new Vector2(0f, DeckRowLayout.RewardRaise);
+            cardRow.Position -= new Vector2(0f, Tunables.RewardRaise);
     }
 
     private static float MeasureSkipFontHeight(Node screen)

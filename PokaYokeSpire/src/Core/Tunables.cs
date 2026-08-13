@@ -34,6 +34,25 @@ public static class Tunables
     public static float HandRaiseFrac { get; private set; } = 0.5f;
     public static float CounterRaiseFracOfHand { get; private set; } = 1f / 3f;
 
+    // ── energy counter ──
+    public static float EnergyHeightFrac { get; private set; } = 1.03f;   // fraction of screen height
+
+    // ── radial relics ──
+    public static float RadialRadius { get; private set; } = 140f;
+
+    // ── reward screen + deck fan ──
+    public static float RewardRaise { get; private set; } = 64f;            // reward choices lifted (px)
+    public static float DeckRaiseFracOfReward { get; private set; } = 0.5f; // deck fan lifts by this × RewardRaise
+    public static float DeckFanGap { get; private set; } = 14f;             // clear gap between fully-spread cards
+    public static float DeckMinVisibleStep { get; private set; } = 26f;     // min sliver of an overlapped card
+
+    // ── deck-stats side panels ──
+    public static float SidePanelMarginFrac { get; private set; } = 0.02f;  // panels this far off each screen edge
+
+    // ── card target preview ──
+    public static float CardPreviewOffsetX { get; private set; } = 24f;
+    public static float CardPreviewOffsetY { get; private set; } = 16f;
+
     /// Bumped on every successful (re)load OR live edit; features compare it to know when to rebuild.
     public static int Revision { get; private set; }
     private static void Bump() => Revision++;
@@ -61,6 +80,15 @@ public static class Tunables
         new() { Path = "gem.redTint.b",  Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemRedTint.B,  Set = v => { GemRedTint = new Color(GemRedTint.R, GemRedTint.G, v); Bump(); } },
         new() { Path = "hud.handRaiseFrac",           Min = 0f, Max = 2f, Step = 0.02f, Get = () => HandRaiseFrac,           Set = v => { HandRaiseFrac = v; Bump(); } },
         new() { Path = "hud.counterRaiseFracOfHand",  Min = 0f, Max = 1f, Step = 0.01f, Get = () => CounterRaiseFracOfHand,  Set = v => { CounterRaiseFracOfHand = v; Bump(); } },
+        new() { Path = "energy.heightFrac",           Min = 0.40f, Max = 1.20f, Step = 0.01f, Get = () => EnergyHeightFrac,        Set = v => { EnergyHeightFrac = v; Bump(); } },
+        new() { Path = "radial.radius",               Min = 60f,   Max = 320f,  Step = 5f,    Get = () => RadialRadius,            Set = v => { RadialRadius = v; Bump(); } },
+        new() { Path = "reward.rewardRaise",          Min = 0f,    Max = 160f,  Step = 2f,    Get = () => RewardRaise,             Set = v => { RewardRaise = v; Bump(); } },
+        new() { Path = "reward.deckRaiseFracOfReward",Min = 0f,    Max = 1f,    Step = 0.05f, Get = () => DeckRaiseFracOfReward,    Set = v => { DeckRaiseFracOfReward = v; Bump(); } },
+        new() { Path = "deckFan.gap",                 Min = 0f,    Max = 40f,   Step = 1f,    Get = () => DeckFanGap,              Set = v => { DeckFanGap = v; Bump(); } },
+        new() { Path = "deckFan.minVisibleStep",      Min = 8f,    Max = 60f,   Step = 1f,    Get = () => DeckMinVisibleStep,      Set = v => { DeckMinVisibleStep = v; Bump(); } },
+        new() { Path = "sidePanel.marginFrac",        Min = 0f,    Max = 0.10f, Step = 0.005f,Get = () => SidePanelMarginFrac,     Set = v => { SidePanelMarginFrac = v; Bump(); } },
+        new() { Path = "cardPreview.cursorOffsetX",   Min = -80f,  Max = 80f,   Step = 2f,    Get = () => CardPreviewOffsetX,      Set = v => { CardPreviewOffsetX = v; Bump(); } },
+        new() { Path = "cardPreview.cursorOffsetY",   Min = -80f,  Max = 80f,   Step = 2f,    Get = () => CardPreviewOffsetY,      Set = v => { CardPreviewOffsetY = v; Bump(); } },
     };
 
     /// Serialize the CURRENT values back to the tunables.json schema (indented, so it stays readable in
@@ -78,7 +106,26 @@ public static class Tunables
         {
             ["handRaiseFrac"] = Round(HandRaiseFrac), ["counterRaiseFracOfHand"] = Round(CounterRaiseFracOfHand),
         };
-        var root = new System.Collections.Generic.Dictionary<string, object> { ["gem"] = gem, ["hud"] = hud };
+        var root = new System.Collections.Generic.Dictionary<string, object>
+        {
+            ["gem"] = gem,
+            ["hud"] = hud,
+            ["energy"] = new System.Collections.Generic.Dictionary<string, object> { ["heightFrac"] = Round(EnergyHeightFrac) },
+            ["radial"] = new System.Collections.Generic.Dictionary<string, object> { ["radius"] = Round(RadialRadius) },
+            ["reward"] = new System.Collections.Generic.Dictionary<string, object>
+            {
+                ["rewardRaise"] = Round(RewardRaise), ["deckRaiseFracOfReward"] = Round(DeckRaiseFracOfReward),
+            },
+            ["deckFan"] = new System.Collections.Generic.Dictionary<string, object>
+            {
+                ["gap"] = Round(DeckFanGap), ["minVisibleStep"] = Round(DeckMinVisibleStep),
+            },
+            ["sidePanel"] = new System.Collections.Generic.Dictionary<string, object> { ["marginFrac"] = Round(SidePanelMarginFrac) },
+            ["cardPreview"] = new System.Collections.Generic.Dictionary<string, object>
+            {
+                ["cursorOffsetX"] = Round(CardPreviewOffsetX), ["cursorOffsetY"] = Round(CardPreviewOffsetY),
+            },
+        };
         return JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
     }
 
@@ -174,6 +221,27 @@ public static class Tunables
             {
                 HandRaiseFrac = F(hud, "handRaiseFrac", HandRaiseFrac);
                 CounterRaiseFracOfHand = F(hud, "counterRaiseFracOfHand", CounterRaiseFracOfHand);
+            }
+            if (root.TryGetProperty("energy", out var en))
+                EnergyHeightFrac = F(en, "heightFrac", EnergyHeightFrac);
+            if (root.TryGetProperty("radial", out var ra))
+                RadialRadius = F(ra, "radius", RadialRadius);
+            if (root.TryGetProperty("reward", out var rw))
+            {
+                RewardRaise = F(rw, "rewardRaise", RewardRaise);
+                DeckRaiseFracOfReward = F(rw, "deckRaiseFracOfReward", DeckRaiseFracOfReward);
+            }
+            if (root.TryGetProperty("deckFan", out var df))
+            {
+                DeckFanGap = F(df, "gap", DeckFanGap);
+                DeckMinVisibleStep = F(df, "minVisibleStep", DeckMinVisibleStep);
+            }
+            if (root.TryGetProperty("sidePanel", out var sp))
+                SidePanelMarginFrac = F(sp, "marginFrac", SidePanelMarginFrac);
+            if (root.TryGetProperty("cardPreview", out var cp))
+            {
+                CardPreviewOffsetX = F(cp, "cursorOffsetX", CardPreviewOffsetX);
+                CardPreviewOffsetY = F(cp, "cursorOffsetY", CardPreviewOffsetY);
             }
             Revision++;
         }

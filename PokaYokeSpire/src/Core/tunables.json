@@ -14,5 +14,32 @@
   "hud": {
     "handRaiseFrac": 0.5,
     "counterRaiseFracOfHand": 0.3333
+  },
+
+  "energy": {
+    "heightFrac": 0.7
+  },
+
+  "radial": {
+    "radius": 140.0
+  },
+
+  "reward": {
+    "rewardRaise": 64.0,
+    "deckRaiseFracOfReward": 0.5
+  },
+
+  "deckFan": {
+    "gap": 14.0,
+    "minVisibleStep": 26.0
+  },
+
+  "sidePanel": {
+    "marginFrac": 0.02
+  },
+
+  "cardPreview": {
+    "cursorOffsetX": 24.0,
+    "cursorOffsetY": 16.0
   }
 }

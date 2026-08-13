@@ -34,7 +34,8 @@ public static class DeckRowLayout
     public static Result Compute(
         float vpW, float vpH, int deckCount, float cardW, float cardH,
         float rewardCenterY, float rewardGroupW, float rewardGroupH,
-        float rewardRaise = RewardRaise, float deckRaise = DeckRaise)
+        float rewardRaise = RewardRaise, float deckRaise = DeckRaise,
+        float fanGap = FanGap, float minVisibleStep = MinVisibleStep)
     {
         // reward choices, raised up and centred horizontally
         float rewCenterY = rewardCenterY - rewardRaise;
@@ -45,7 +46,7 @@ public static class DeckRowLayout
         var cards = new UiRect[n];
         if (n == 0) return new Result(cards, rewardArea, 0f);
 
-        float step = Step(vpW, n, cardW);
+        float step = Step(vpW, n, cardW, fanGap, minVisibleStep);
         float totalW = cardW + step * (n - 1);
         float startX = (vpW - totalW) / 2f;
         float y = vpH - cardH - BottomPad - deckRaise;
@@ -57,13 +58,13 @@ public static class DeckRowLayout
 
     /// Horizontal step between successive fan cards: spread up to one card + <see cref="FanGap"/>
     /// when there's room, otherwise overlap — but never buried tighter than an edge-to-edge fill.
-    public static float Step(float vpW, int deckCount, float cardW)
+    public static float Step(float vpW, int deckCount, float cardW, float fanGap = FanGap, float minVisibleStep = MinVisibleStep)
     {
         if (deckCount <= 1) return 0f;
         float margin = vpW * SideMarginFrac;
         float usable = vpW - margin * 2f - cardW;
-        float step = MathF.Min(cardW + FanGap, usable / (deckCount - 1));
-        if (step < MinVisibleStep)
+        float step = MathF.Min(cardW + fanGap, usable / (deckCount - 1));
+        if (step < minVisibleStep)
         {
             // too crowded for the preferred sliver: fall back to spanning the FULL width so every
             // card stays on-screen. For an enormous deck this can still dip below MinVisibleStep,

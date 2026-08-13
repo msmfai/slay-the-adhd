@@ -60,7 +60,7 @@ internal static class DeckStatsFeature
         (UiRect left, UiRect right) rects = default;
         for (int i = 0; i < 6; i++)
         {
-            rects = SidePanelLayout.Compute(vp.X, vp.Y, panelW, panelH, centerY);
+            rects = SidePanelLayout.Compute(vp.X, vp.Y, panelW, panelH, centerY, Tunables.SidePanelMarginFrac);
             if (!SpatialGraph.Intersects(rects.left, rewardArea) && !SpatialGraph.Intersects(rects.right, rewardArea)) break;
             panelW *= 0.85f;
             if (panelW < 150f) break;

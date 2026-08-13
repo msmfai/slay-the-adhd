@@ -41,19 +41,14 @@ public class Config : SimpleModConfig
     /// Move the energy counter to the center of the screen, just above your hand.
     public static bool CenterEnergyCounter { get; set; } = true;
 
-    /// Vertical position of the recentered energy counter, as a fraction of screen
-    /// height (0 = top, 1 = bottom). ~0.85 sits near the original bottom spot.
-    [ConfigSlider(0.40, 1.20, 0.01, Format = "{0:0.00}")]
-    public static double EnergyCounterHeight { get; set; } = 1.03;
+    // Energy-counter HEIGHT is now a live tunable (tunables.json → energy.heightFrac, F9 panel).
 
     /// Left-click a top-bar relic to fan a copy of it radially around the energy
     /// counter (left-click again to remove). Suppresses the inspect screen on
     /// left-click while enabled. (v1 — positioning is being tuned.)
     public static bool RadialRelics { get; set; } = false;
 
-    /// Distance (px) of the fanned relic copies from the energy counter.
-    [ConfigSlider(60.0, 320.0, 5.0)]
-    public static double RadialRelicRadius { get; set; } = 140.0;
+    // Radial-relic RADIUS is now a live tunable (tunables.json → radial.radius, F9 panel).
 
     /// Right-click a relic that has a counter to show a small blue counter with its
     /// number, in a row to the left of the energy counter. Right-click again to remove.
