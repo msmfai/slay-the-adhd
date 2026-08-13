@@ -1,0 +1,22 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <!-- Test-only DRIVER mod. Never shipped. Unlocks the game's built-in AutoSlay
+       autoplayer (gated behind NGame.IsReleaseGame), mutes all audio via the game's
+       TestMode, speeds the game up, and pilots a full run so the Poka-Yoke patches
+       execute in real combat. Loaded only during ./drive-headless.sh. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <RootNamespace>PokaYokeHarness</RootNamespace>
+    <AssemblyName>PokaYokeHarness</AssemblyName>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+  <PropertyGroup>
+    <GameDir>$(HOME)/Library/Application Support/Steam/steamapps/common/Slay the Spire 2/SlayTheSpire2.app/Contents/Resources/data_sts2_macos_arm64</GameDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="sts2"><HintPath>$(GameDir)/sts2.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(GameDir)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>
