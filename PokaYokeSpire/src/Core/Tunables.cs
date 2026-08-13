@@ -104,6 +104,20 @@ public static class Tunables
         new() { Path = "enemy.intentOffsetY",         Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyIntentOffsetY,      Set = v => { EnemyIntentOffsetY = v; Bump(); } },
     };
 
+    /// Editable TEXT tunables (rendered as multi-line fields in the panel) — the gem tooltips.
+    public sealed class TextKnob
+    {
+        public string Path = "";
+        public Func<string> Get = () => "";
+        public Action<string> Set = _ => { };
+    }
+
+    public static readonly System.Collections.Generic.List<TextKnob> TextKnobs = new()
+    {
+        new() { Path = "gem.incomingTip", Get = () => IncomingTip, Set = v => { IncomingTip = v; Bump(); } },
+        new() { Path = "gem.offenseTip",  Get = () => OffenseTip,  Set = v => { OffenseTip = v; Bump(); } },
+    };
+
     // ── HSV helpers: keep hue/sat, drive BRIGHTNESS as the max component (allowing HDR > 1) ──
     private static float Maxc(Color c) => Mathf.Max(c.R, Mathf.Max(c.G, c.B));
     private static Color Normalized(Color c) { float m = Maxc(c); return m > 0.0001f ? new Color(c.R / m, c.G / m, c.B / m) : Colors.White; }

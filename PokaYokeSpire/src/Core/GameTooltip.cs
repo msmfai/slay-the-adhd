@@ -23,13 +23,6 @@ public static class GameTooltip
     private const string Table = "pokayoke";
     private static readonly Dictionary<string, string> _titles = new();
 
-    /// Register/replace the title text for <paramref name="key"/> in the mod loc table.
-    public static void SetTitle(string key, string title)
-    {
-        _titles[key] = title ?? "";
-        EnsureLoc();
-    }
-
     /// Ensure our loc table exists and holds the current titles (re-runs cheaply; also recovers if the
     /// game rebuilt its tables, e.g. on a language change).
     private static void EnsureLoc()
@@ -46,13 +39,12 @@ public static class GameTooltip
         catch (Exception e) { DebugLog.Error("GameTooltip.EnsureLoc", e); }
     }
 
-    /// Bind a control to show the game hover tip (title = loc <paramref name="titleKey"/>, body = literal
-    /// <paramref name="body"/>) on hover, placed at <c>node.GlobalPosition + <paramref name="offset"/></c>
-    /// — exactly how NEnergyCounter positions its own tip (CreateAndShow with default alignment, then set
-    /// GlobalPosition manually). Anchoring at the node means the tip inherits the node's horizontal offset.
-    /// The node is set to STOP so it consumes its own hover — otherwise the hover also propagates to its
-    /// parent (the energy counter) and that shows its energy tip too.
-    public static void Bind(Control node, string titleKey, string body, Vector2 offset)
+    /// Bind a control to show the game hover tip on hover. The text is read from <paramref name="text"/>
+    /// EACH hover (so live edits show immediately, no rebuild): its first line is the title (registered in
+    /// the loc table), the rest is the body. Placed at <c>node.GlobalPosition + <paramref name="offset"/></c>
+    /// — exactly how NEnergyCounter positions its own tip. The node is set to STOP so it consumes its own
+    /// hover — otherwise the hover also propagates to its parent (the energy counter) and shows its tip too.
+    public static void Bind(Control node, string titleKey, Func<string> text, Vector2 offset)
     {
         try
         {
@@ -62,8 +54,10 @@ public static class GameTooltip
             {
                 try
                 {
+                    var (title, body) = Split(text?.Invoke() ?? "");
+                    _titles[titleKey] = title;
                     EnsureLoc();
-                    var tip = new HoverTip(new LocString(Table, titleKey), body ?? "");
+                    var tip = new HoverTip(new LocString(Table, titleKey), body);
                     var set = NHoverTipSet.CreateAndShow(node, tip);
                     if (set != null && GodotObject.IsInstanceValid(set))
                         set.GlobalPosition = node.GlobalPosition + offset;
@@ -74,5 +68,12 @@ public static class GameTooltip
             node.MouseExited += () => { try { NHoverTipSet.Remove(node); } catch { } };
         }
         catch (Exception e) { DebugLog.Error("GameTooltip.Bind", e); }
+    }
+
+    /// First line = title, the rest = body.
+    private static (string title, string body) Split(string s)
+    {
+        int nl = s.IndexOf('\n');
+        return nl < 0 ? (s, "") : (s[..nl], s[(nl + 1)..]);
     }
 }

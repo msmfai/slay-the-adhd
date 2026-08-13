@@ -20,6 +20,7 @@ public partial class TuningPanel : CanvasLayer
     private bool _dragging;
     private Vector2 _dragOff;
     private readonly List<(Tunables.Knob k, HSlider s, Label v)> _rows = new();
+    private readonly List<(Tunables.TextKnob k, TextEdit te)> _textRows = new();
 
     public override void _Ready()
     {
@@ -68,6 +69,11 @@ public partial class TuningPanel : CanvasLayer
         vb.AddChild(scroll);
         foreach (var k in Tunables.Knobs) knobs.AddChild(BuildKnobRow(k));
 
+        // ── editable text tunables (tooltips) ──
+        knobs.AddChild(new HSeparator());
+        knobs.AddChild(new Label { Text = "Tooltips (type your own; \\n = new line)" });
+        foreach (var tk in Tunables.TextKnobs) knobs.AddChild(BuildTextRow(tk));
+
         // ── footer: save / randomize / reset + status ──
         vb.AddChild(new HSeparator());
         var footer = new HBoxContainer();
@@ -107,9 +113,31 @@ public partial class TuningPanel : CanvasLayer
         return row;
     }
 
+    private Control BuildTextRow(Tunables.TextKnob tk)
+    {
+        var box = new VBoxContainer();
+        box.AddChild(new Label { Text = tk.Path });
+        var te = new TextEdit
+        {
+            Text = tk.Get(),
+            CustomMinimumSize = new Vector2(0, 84),
+            WrapMode = TextEdit.LineWrappingMode.Boundary,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+        };
+        te.TextChanged += () =>
+        {
+            try { tk.Set(te.Text); LiveTuning.RaiseReloaded(); }
+            catch (System.Exception e) { DebugLog.Error($"text {tk.Path}", e); }
+        };
+        box.AddChild(te);
+        _textRows.Add((tk, te));
+        return box;
+    }
+
     private void RefreshValues()
     {
         foreach (var (k, s, v) in _rows) { s.SetValueNoSignal(k.Get()); v.Text = k.Get().ToString("0.###"); }
+        foreach (var (tk, te) in _textRows) if (te.Text != tk.Get()) te.Text = tk.Get();
     }
 
     private void OnSave()
