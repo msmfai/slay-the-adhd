@@ -141,16 +141,9 @@ internal static class EndTurnDamageFeature
     {
         const float scale = 2f / 3f;
         const float gap = 14f;
-        float cw = counter.Size.X > 1f ? counter.Size.X : _orbNatural;
         float ch = counter.Size.Y > 1f ? counter.Size.Y : _orbNatural;
 
-        // counter-sized Control, scaled 2/3 around its OWN middle, placed by offset from the counter's
-        // centre (counter-half + gap + gem-half) so the two gems sit symmetric and never drift.
-        var gem = new Control { Name = name, Size = new Vector2(cw, ch), MouseFilter = Control.MouseFilterEnum.Ignore };
-        gem.PivotOffset = new Vector2(cw, ch) * 0.5f;
-        gem.Scale = new Vector2(scale, scale);
-        float offX = cw * 0.5f + gap + cw * scale * 0.5f;
-        gem.Position = new Vector2(isLeft ? -offX : offX, 0f);
+        var gem = new Control { Name = name, MouseFilter = Control.MouseFilterEnum.Ignore };
 
         // orb body — keep each piece's original position so the layout matches the counter exactly.
         if (Traverse.Create(counter).Field("_layers").GetValue<Control>() is { } srcLayers
@@ -175,12 +168,31 @@ internal static class EndTurnDamageFeature
         }
         else
         {
-            var lbl = new Label { Size = new Vector2(cw, ch), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MouseFilter = Control.MouseFilterEnum.Ignore };
+            var lbl = new Label { Size = new Vector2(ch, ch), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MouseFilter = Control.MouseFilterEnum.Ignore };
             var ff = ThemeDB.Singleton?.FallbackFont; if (ff != null) lbl.AddThemeFontOverride("font", ff);
             lbl.AddThemeFontSizeOverride("font_size", (int)(ch * 0.28f));
             lbl.AddThemeColorOverride("font_color", Colors.White);
             gem.AddChild(lbl);
             setText = txt => { try { lbl.Text = txt; } catch { } };
+        }
+
+        // Position by the copied content's ACTUAL bounding box: that box IS the counter's real orb
+        // (the counter's local origin is not its centre), so the gems sit symmetric about the orb's
+        // centre and scale ⅔ around it. Robust against wherever the counter draws its pieces.
+        Vector2 min = new(float.MaxValue, float.MaxValue), max = new(float.MinValue, float.MinValue);
+        foreach (var child in gem.GetChildren())
+            if (child is Control c) { min = min.Min(c.Position); max = max.Max(c.Position + c.Size); }
+        if (max.X > min.X)
+        {
+            gem.PivotOffset = (min + max) * 0.5f;                     // scale around the content centre
+            gem.Scale = new Vector2(scale, scale);
+            float offX = (max.X - min.X) * (0.5f + scale * 0.5f) + gap;  // orb half + gap + scaled orb half
+            gem.Position = new Vector2(isLeft ? -offX : offX, 0f);
+        }
+        else
+        {
+            gem.Scale = new Vector2(scale, scale);
+            gem.Position = new Vector2(isLeft ? -(ch + gap) : ch + gap, 0f);
         }
 
         Overlay.Attach(counter, name, () => gem);
