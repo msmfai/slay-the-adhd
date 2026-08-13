@@ -7,9 +7,10 @@ namespace PokaYokeSpire.Core;
 
 /// <summary>
 /// A dedicated, grep-able log for the mod, gated on <see cref="Config.DebugLogging"/>. When on, every
-/// line is timestamped and level-tagged and appended to "pokayoke-debug.log" NEXT TO THE MOD DLL —
-/// so after a normal playthrough the whole story of the mod (and every error/warning it hit) is in one
-/// file, isolated from the game's own noisy log. Filter it with: grep -E "\[ERROR\]|\[WARN\]".
+/// line is timestamped and level-tagged and written to a per-session file under the modding repo's
+/// <c>logs/</c> folder (<c>modding/logs/pokayoke-YYYYMMDD-HHmmss.log</c>) — the working dir, so the log
+/// can just be read afterwards. History accumulates (newest = latest session; old ones auto-pruned to
+/// 15). Filter it with: grep -E "\[ERROR\]|\[WARN\]".
 ///
 /// ERROR/WARN lines are also mirrored into the game's own log. Writing is fully fail-open: logging can
 /// never throw into the mod. Off by default => zero overhead.
@@ -31,15 +32,23 @@ public static class DebugLog
         _resolved = true;
         try
         {
-            var loc = Assembly.GetExecutingAssembly().Location;
-            var dir = string.IsNullOrEmpty(loc) ? null : System.IO.Path.GetDirectoryName(loc);
-            if (dir == null || !Directory.Exists(dir))
+            // Write to the modding REPO's logs/ folder (the working dir the LLM reads), NOT next to the
+            // installed DLL buried in the Steam folder. One timestamped file per session so history
+            // accumulates and the newest can just be read. Falls back to next-to-DLL if the repo moved.
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var dir = System.IO.Path.Combine(home, "Library", "Application Support", "SlayTheSpire2", "modding", "logs");
+            if (!Directory.Exists(dir))
             {
-                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                dir = System.IO.Path.Combine(home, "Library", "Application Support", "SlayTheSpire2");
+                try { Directory.CreateDirectory(dir); }
+                catch
+                {
+                    var loc = Assembly.GetExecutingAssembly().Location;
+                    dir = string.IsNullOrEmpty(loc) ? home : (System.IO.Path.GetDirectoryName(loc) ?? home);
+                }
             }
-            _path = System.IO.Path.Combine(dir, "pokayoke-debug.log");
-            // fresh log each session; header names when it started + the current feature toggles
+            PruneOld(dir, keep: 15);
+            _path = System.IO.Path.Combine(dir, $"pokayoke-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+            // header names when it started + the current feature toggles
             File.WriteAllText(_path,
                 $"=== PokaYokeSpire debug log — session start {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\n" +
                 $"overlays-disabled={Config.DisableAllOverlays}  " +
@@ -48,6 +57,20 @@ public static class DebugLog
                 $"raise-hud={Config.RaiseCombatHud} card-preview={Config.ShowCardTargetPreview}\n\n");
         }
         catch { _path = null; }
+    }
+
+    /// Keep the log folder from growing without bound: delete all but the newest <paramref name="keep"/>.
+    private static void PruneOld(string dir, int keep)
+    {
+        try
+        {
+            var files = Directory.GetFiles(dir, "pokayoke-*.log");
+            if (files.Length <= keep) return;
+            Array.Sort(files, StringComparer.Ordinal);   // timestamped names sort chronologically
+            for (int i = 0; i < files.Length - keep; i++)
+                try { File.Delete(files[i]); } catch { }
+        }
+        catch { }
     }
 
     private static void Write(string level, string msg)
