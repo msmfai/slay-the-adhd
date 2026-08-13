@@ -150,7 +150,10 @@ internal static class LethalGemGlowFeature
     {
         try
         {
-            bool lethal = Config.LethalGemGlow && LethalGemGlowState.IsLethal;
+            // Hovering an enemy → glow if you can kill THAT enemy; otherwise glow if you can clear the room.
+            bool lethal = Config.LethalGemGlow && (EndTurnDamageFeature.HoveredEnemy != null
+                ? EndTurnDamageFeature.HoveredEnemyLethal
+                : LethalGemGlowState.IsLethal);
 
             var layers = Traverse.Create(__instance).Field("_layers").GetValue<Control>();
             if (layers == null || !GodotObject.IsInstanceValid(layers)) return;
