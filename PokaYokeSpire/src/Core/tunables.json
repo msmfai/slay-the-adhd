@@ -1,6 +1,6 @@
 {
   "gem": {
-    "fontFrac": 0.215,
+    "fontFrac": 0.195,
     "gap": 10.5,
     "scale": 0.73,
     "blueTint": [
@@ -17,27 +17,27 @@
     "offenseTip": "Your damage\nx / y  \u2014  the most HP you can deal this turn over that plus damage that lands before\nyour next play (poison, start-of-turn effects, \u2026). Hover an enemy to scope both numbers to it."
   },
   "hud": {
-    "handRaiseFrac": 0.18,
-    "counterRaiseFracOfHand": 0.3333,
-    "groupOffsetX": 0,
-    "groupOffsetY": 0
+    "handRaiseFrac": 0.2,
+    "counterRaiseFracOfHand": 0.24,
+    "groupOffsetX": 4,
+    "groupOffsetY": 50
   },
   "energy": {
-    "heightFrac": 0.67
+    "heightFrac": 0.7
   },
   "radial": {
     "radius": 140
   },
   "reward": {
-    "rewardRaise": 72,
+    "rewardRaise": 74,
     "deckRaiseFracOfReward": 0.45
   },
   "deckFan": {
-    "gap": 7,
+    "gap": 9,
     "minVisibleStep": 25
   },
   "sidePanel": {
-    "marginFrac": 0.03
+    "marginFrac": 0.035
   },
   "cardPreview": {
     "cursorOffsetX": 18,

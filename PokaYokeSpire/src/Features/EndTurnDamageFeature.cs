@@ -281,7 +281,9 @@ internal static class EndTurnDamageFeature
         }
 
         var attached = Overlay.Attach(counter, name, () => gem) ?? gem;
-        Overlay.SetTooltip(attached, tooltip);   // hover-only (Pass) — informative but never eats a click
+        // custom hover tooltip (the game's tooltip system swallows Godot's built-in TooltipText for our
+        // overlay gems); Pass mouse filter → hover fires but clicks still pass through.
+        HoverTooltip.Bind(attached, () => tooltip);
         return new Orb { Gem = attached, SetText = setText, IsLeft = isLeft };
     }
 
