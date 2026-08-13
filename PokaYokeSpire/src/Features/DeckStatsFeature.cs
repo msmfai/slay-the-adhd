@@ -9,6 +9,7 @@ using MegaCrit.Sts2.Core.Models;                      // CardModel
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection; // NCardRewardSelectionScreen
 using MegaCrit.Sts2.Core.Runs;                        // RunManager, RunState
 using PokaYokeSpire.Combat;
+using PokaYokeSpire.Core;
 using PokaYokeSpire.Spatial;
 
 namespace PokaYokeSpire.Features;
@@ -26,65 +27,56 @@ internal static class DeckStatsFeature
     private const string LeftName = "PokaYokeStatsLeft";
     private const string RightName = "PokaYokeStatsRight";
 
-    private static void Postfix(NCardRewardSelectionScreen __instance)
+    private static void Postfix(NCardRewardSelectionScreen __instance) =>
+        Feature.RunUi("deck-stats", () => Config.ShowDeckStats, () => Build(__instance));
+
+    private static void Build(NCardRewardSelectionScreen screen)
     {
-        try
+        var deck = GetDeck();
+        if (deck == null || deck.Count == 0) return;   // fail-closed
+
+        var facts = new List<DeckStats.CardFact>(deck.Count);
+        foreach (var c in deck) { try { facts.Add(CardFactReader.Read(c)); } catch { /* skip an unreadable card */ } }
+        if (facts.Count == 0) return;
+        var stats = DeckStats.Compute(facts);
+
+        Vector2 vp = screen.GetViewportRect().Size;
+        float panelW = MathF.Max(240f, vp.X * 0.15f);
+        float panelH = 46f + 30f * 5 + 14f;   // sized for the taller (5-row) panel
+
+        // centre the panels on the reward choices (measured; falls back to upper third)
+        float centerY = vp.Y * 0.30f;
+        var cardRow = screen.GetNodeOrNull<Control>("UI/CardRow");
+        UiRect rewardArea;
+        if (cardRow != null && cardRow.Size.X > 1f)
         {
-            if (Config.DisableAllOverlays || !Config.ShowDeckStats) return;
-            if (__instance.GetNodeOrNull(LeftName) != null) return;
-
-            var deck = GetDeck();
-            if (deck == null || deck.Count == 0) return;
-
-            var facts = new List<DeckStats.CardFact>(deck.Count);
-            foreach (var c in deck) { try { facts.Add(CardFactReader.Read(c)); } catch { /* skip an unreadable card */ } }
-            if (facts.Count == 0) return;
-            var stats = DeckStats.Compute(facts);
-
-            Vector2 vp = __instance.GetViewportRect().Size;
-            float panelW = MathF.Max(240f, vp.X * 0.15f);
-            float panelH = 46f + 30f * 5 + 14f;   // sized for the taller (5-row) panel
-
-            // centre the panels on the reward choices (measured; falls back to upper third)
-            float centerY = vp.Y * 0.30f;
-            var cardRow = __instance.GetNodeOrNull<Control>("UI/CardRow");
-            UiRect rewardArea;
-            if (cardRow != null && cardRow.Size.X > 1f)
-            {
-                var gr = cardRow.GetGlobalRect();
-                centerY = gr.Position.Y + gr.Size.Y / 2f;
-                rewardArea = new UiRect("reward", gr.Position.X, gr.Position.Y, gr.Size.X, gr.Size.Y);
-            }
-            else rewardArea = new UiRect("reward", (vp.X - vp.X * 0.55f) / 2f, vp.Y * 0.10f, vp.X * 0.55f, vp.Y * 0.55f);
-
-            // solve panel width against the occlusion lint — shrink until clear of the choices
-            (UiRect left, UiRect right) rects = default;
-            for (int i = 0; i < 6; i++)
-            {
-                rects = SidePanelLayout.Compute(vp.X, vp.Y, panelW, panelH, centerY);
-                if (!SpatialGraph.Intersects(rects.left, rewardArea) && !SpatialGraph.Intersects(rects.right, rewardArea)) break;
-                panelW *= 0.85f;
-                if (panelW < 150f) break;
-            }
-
-            var leftPanel = BuildPanel(LeftName, "Deck", DeckStats.LeftRows(stats), rects.left.W, panelH, new Color(0.6f, 0.85f, 1f));
-            leftPanel.Position = new Vector2(rects.left.X, rects.left.Y);
-            __instance.AddChild(leftPanel);
-
-            var rightPanel = BuildPanel(RightName, "Output", DeckStats.RightRows(stats), rects.right.W, panelH, new Color(1f, 0.8f, 0.55f));
-            rightPanel.Position = new Vector2(rects.right.X, rects.right.Y);
-            __instance.AddChild(rightPanel);
-
-            UiSafety.Passthrough(leftPanel);   // display-only — never intercept a pick
-            UiSafety.Passthrough(rightPanel);
+            var gr = cardRow.GetGlobalRect();
+            centerY = gr.Position.Y + gr.Size.Y / 2f;
+            rewardArea = new UiRect("reward", gr.Position.X, gr.Position.Y, gr.Size.X, gr.Size.Y);
         }
-        catch (Exception e) { MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] deck-stats error: {e.Message}"); }
+        else rewardArea = new UiRect("reward", (vp.X - vp.X * 0.55f) / 2f, vp.Y * 0.10f, vp.X * 0.55f, vp.Y * 0.55f);
+
+        // solve panel width against the occlusion lint — shrink until clear of the choices
+        (UiRect left, UiRect right) rects = default;
+        for (int i = 0; i < 6; i++)
+        {
+            rects = SidePanelLayout.Compute(vp.X, vp.Y, panelW, panelH, centerY);
+            if (!SpatialGraph.Intersects(rects.left, rewardArea) && !SpatialGraph.Intersects(rects.right, rewardArea)) break;
+            panelW *= 0.85f;
+            if (panelW < 150f) break;
+        }
+
+        var leftPanel = Overlay.Attach(screen, LeftName, () => BuildPanel("Deck", DeckStats.LeftRows(stats), rects.left.W, panelH, new Color(0.6f, 0.85f, 1f)));
+        if (leftPanel != null) leftPanel.Position = new Vector2(rects.left.X, rects.left.Y);
+
+        var rightPanel = Overlay.Attach(screen, RightName, () => BuildPanel("Output", DeckStats.RightRows(stats), rects.right.W, panelH, new Color(1f, 0.8f, 0.55f)));
+        if (rightPanel != null) rightPanel.Position = new Vector2(rects.right.X, rects.right.Y);
     }
 
-    private static Control BuildPanel(string name, string title,
+    private static Control BuildPanel(string title,
         IReadOnlyList<(string label, string value)> rows, float panelW, float panelH, Color accent)
     {
-        var panel = new Control { Name = name, Size = new Vector2(panelW, panelH), MouseFilter = Control.MouseFilterEnum.Ignore };
+        var panel = new Control { Size = new Vector2(panelW, panelH), MouseFilter = Control.MouseFilterEnum.Ignore };
 
         var bg = new ColorRect { Color = new Color(0.05f, 0.06f, 0.09f, 0.72f), Size = new Vector2(panelW, panelH), MouseFilter = Control.MouseFilterEnum.Ignore };
         panel.AddChild(bg);
