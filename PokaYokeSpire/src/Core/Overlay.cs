@@ -42,21 +42,6 @@ public static class Overlay
     /// (e.g. rebuilt content). Cheap; safe to call every update.
     public static void Reseal(Node overlay) => UiSafety.Passthrough(overlay);
 
-    /// Give an overlay a hover tooltip WITHOUT letting it eat clicks. A tooltip needs the node to
-    /// receive mouse motion, so the ROOT uses MouseFilter.Pass — it gets hover (tooltip shows) but the
-    /// click still propagates to whatever is behind it and is never consumed (unlike Stop). Children
-    /// stay Ignore. So an overlay can be informative and still input-safe by construction (invariant 1).
-    public static void SetTooltip(Control node, string text)
-    {
-        try
-        {
-            if (node == null || !GodotObject.IsInstanceValid(node)) return;
-            node.TooltipText = text;
-            node.MouseFilter = Control.MouseFilterEnum.Pass;   // hover-only; never consumes a click
-        }
-        catch (Exception e) { DebugLog.Error("Overlay.SetTooltip", e); }
-    }
-
     public static void Remove(Node parent, string name)
     {
         try

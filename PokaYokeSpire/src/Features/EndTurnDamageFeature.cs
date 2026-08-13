@@ -136,8 +136,15 @@ internal static class EndTurnDamageFeature
         if (_left?.Gem != null && GodotObject.IsInstanceValid(_left.Gem)) { _left.Gem.Name = "_pokaGemDeadL"; _left.Gem.QueueFree(); }
         if (_right?.Gem != null && GodotObject.IsInstanceValid(_right.Gem)) { _right.Gem.Name = "_pokaGemDeadR"; _right.Gem.QueueFree(); }
         _orbNatural = counter.Size.X > 1f ? counter.Size.X : 100f;
-        _left = BuildOrb(counter, "PokaYokeIncomingGem", isLeft: true, Tunables.GemBlueTint, Tunables.IncomingTip);
-        _right = BuildOrb(counter, "PokaYokeOffenseGem", isLeft: false, Tunables.GemRedTint, Tunables.OffenseTip);
+        _left = BuildOrb(counter, "PokaYokeIncomingGem", "gem_incoming", isLeft: true, Tunables.GemBlueTint, Tunables.IncomingTip);
+        _right = BuildOrb(counter, "PokaYokeOffenseGem", "gem_offense", isLeft: false, Tunables.GemRedTint, Tunables.OffenseTip);
+    }
+
+    /// Split a tooltip string into (title = first line, body = the rest) for the game hover-tip system.
+    private static (string title, string body) SplitTip(string s)
+    {
+        int nl = s.IndexOf('\n');
+        return nl < 0 ? (s, "") : (s[..nl], s[(nl + 1)..]);
     }
 
     /// Live-tuning callback: tunables.json changed — rebuild both gems with the new values and refresh
@@ -220,7 +227,7 @@ internal static class EndTurnDamageFeature
     /// NEnergyCounter script: it's subscribed to your combat/energy events, so a clone reacts when you
     /// attack (vanishes), auto-fits the font per digit-count, and its %-unique-name spin lookups break
     /// on Duplicate(). Copying the pieces gets the same look with none of that. Guarded + input-safe.
-    private static Orb BuildOrb(NEnergyCounter counter, string name, bool isLeft, Color tint, string tooltip)
+    private static Orb BuildOrb(NEnergyCounter counter, string name, string tipKey, bool isLeft, Color tint, string tooltip)
     {
         float ch = counter.Size.Y > 1f ? counter.Size.Y : _orbNatural;
         float fontFrac = Tunables.GemFontFrac;   // live-tunable; ⅔ of the previous 0.30
@@ -281,9 +288,11 @@ internal static class EndTurnDamageFeature
         }
 
         var attached = Overlay.Attach(counter, name, () => gem) ?? gem;
-        // custom hover tooltip (the game's tooltip system swallows Godot's built-in TooltipText for our
-        // overlay gems); Pass mouse filter → hover fires but clicks still pass through.
-        HoverTooltip.Bind(attached, () => tooltip);
+        // the game's OWN hover-tip system (NHoverTipSet + a mod loc table for the title); body is the
+        // live tunable text. Pass mouse filter → hover fires but clicks still pass through.
+        var (title, body) = SplitTip(tooltip);
+        GameTooltip.SetTitle(tipKey, title);
+        GameTooltip.Bind(attached, tipKey, body);
         return new Orb { Gem = attached, SetText = setText, IsLeft = isLeft };
     }
 
