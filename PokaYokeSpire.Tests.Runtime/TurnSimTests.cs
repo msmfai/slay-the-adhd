@@ -93,6 +93,31 @@ public class TurnSimTests
     }
 
     [Fact]
+    public void IdenticalEnemies_PerEnemyMax_IsSymmetric_AfterPruning()
+    {
+        // 5 Strength-gains + 5 damage-2 strikes vs three identical 100-HP enemies. +5 Str ⇒ each hit
+        // does 7, five hits = 35 focusable on ANY single enemy. The target-symmetry prune + root-group
+        // copy must still give all three the same (correct) per-enemy max.
+        var hand = new List<Card>();
+        for (int i = 0; i < 5; i++) hand.Add(new Card { Cost = 0, StrengthGain = 1 });
+        for (int i = 0; i < 5; i++) hand.Add(new Card { Cost = 0, Damage = 2, AttackTarget = Tgt.OneEnemy });
+        var r = TurnSim.Solve(new TurnSim.Player { Energy = 0 }, new[] { E(100), E(100), E(100) }, hand);
+        Assert.Equal(35, r.MaxPerEnemy[0]);
+        Assert.Equal(35, r.MaxPerEnemy[1]);
+        Assert.Equal(35, r.MaxPerEnemy[2]);
+        Assert.Equal(35, r.MaxDamage);   // only 35 total damage exists this turn
+    }
+
+    [Fact]
+    public void CanKillAll_SpreadsAcrossIdenticalMinions_DespiteTargetPrune()
+    {
+        // three 6-HP minions, three 6-damage strikes → clear the room by SPREADING; the symmetric-target
+        // prune must not prevent finding the spread (hit enemies diverge and become targetable again).
+        var r = TurnSim.Solve(P(3), new[] { E(6), E(6), E(6) }, new List<Card> { Strike(6), Strike(6), Strike(6) });
+        Assert.True(r.CanKillAll);
+    }
+
+    [Fact]
     public void DoNothing_IsAlwaysAnOption()
     {
         // with no useful cards, offense is 0 and you take the full hit.

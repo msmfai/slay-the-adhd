@@ -108,18 +108,55 @@ public static class TurnSim
         var initialHp = new int[n];
         for (int i = 0; i < n; i++) initialHp[i] = enemies[i].Hp;
 
+        int[] cardClass = ClassifyCards(hand);   // identical cards → same class (played in one canonical order)
+
         var best = new Result { MaxDamage = 0, MaxPerEnemy = new int[n], MinHpLost = HpLost(player, enemies) };
         var visited = new HashSet<string>();
         int nodes = 0;
         ulong fullMask = hand.Count >= 64 ? ulong.MaxValue : (1UL << hand.Count) - 1;
-        Recurse(player, enemies, hand, fullMask, initialHp, ref best, visited, ref nodes, nodeCap);
+        Recurse(player, enemies, hand, cardClass, fullMask, initialHp, ref best, visited, ref nodes, nodeCap, payloadPlayed: false);
         best.Nodes = nodes;
         best.Truncated = nodes >= nodeCap;
+
+        // Target-symmetry only focused one representative of each ROOT-identical enemy group; enemies
+        // identical at the root share the same focusable max, so copy the group max to every peer. Lossless.
+        var groupMax = new int[n];
+        for (int i = 0; i < n; i++)
+        {
+            int m = best.MaxPerEnemy[i];
+            for (int j = 0; j < n; j++) if (SameSig(enemies[i], enemies[j]) && best.MaxPerEnemy[j] > m) m = best.MaxPerEnemy[j];
+            groupMax[i] = m;
+        }
+        for (int i = 0; i < n; i++) best.MaxPerEnemy[i] = groupMax[i];
         return best;
     }
 
-    private static void Recurse(Player p, Enemy[] enemies, IReadOnlyList<Card> hand, ulong remaining,
-                                int[] initialHp, ref Result best, HashSet<string> visited, ref int nodes, int cap)
+    // ── lossless pruning helpers ──
+    private static int[] ClassifyCards(IReadOnlyList<Card> hand)
+    {
+        var cls = new int[hand.Count];
+        int next = 0;
+        for (int i = 0; i < hand.Count; i++)
+        {
+            int found = -1;
+            for (int j = 0; j < i; j++) if (SameCard(hand[j], hand[i])) { found = cls[j]; break; }
+            cls[i] = found >= 0 ? found : next++;
+        }
+        return cls;
+    }
+
+    private static bool SameCard(Card a, Card b) =>
+        a.Cost == b.Cost && a.Damage == b.Damage && a.Hits == b.Hits && a.AttackTarget == b.AttackTarget && a.Block == b.Block
+        && a.StrengthGain == b.StrengthGain && a.ApplyVulnerable == b.ApplyVulnerable && a.VulnTarget == b.VulnTarget
+        && a.ApplyWeak == b.ApplyWeak && a.WeakTarget == b.WeakTarget && a.EnergyGain == b.EnergyGain
+        && a.Exhausts == b.Exhausts && a.Dynamic == b.Dynamic && a.DynParam == b.DynParam;
+
+    private static bool SameSig(in Enemy a, in Enemy b) =>
+        a.Hp == b.Hp && a.Block == b.Block && a.Vulnerable == b.Vulnerable && a.Weak == b.Weak && a.Strength == b.Strength
+        && a.IntentDamage == b.IntentDamage && a.IntentHits == b.IntentHits;
+
+    private static void Recurse(Player p, Enemy[] enemies, IReadOnlyList<Card> hand, int[] cardClass, ulong remaining,
+                                int[] initialHp, ref Result best, HashSet<string> visited, ref int nodes, int cap, bool payloadPlayed)
     {
         // evaluate THIS reachable state (you can stop playing at any point)
         int totalDealt = 0;
@@ -148,6 +185,17 @@ public static class TurnSim
             var c = hand[i];
             if (c.Cost > p.Energy) continue;
 
+            // T3 (setup-before-payload dominance): once an attack/Body Slam has been played, never play a
+            // pure non-attack card — playing every setup/block BEFORE the attacks is always ≥ as good
+            // (buffs help more attacks, block feeds Body Slam), so interleavings are dominated. Lossless.
+            if (payloadPlayed && !c.IsAttack) continue;
+
+            // T1: among identical cards, only play them in index order (skip if a duplicate at a lower
+            // index is still unplayed) — collapses the factorial of interchangeable-card permutations.
+            bool dupLower = false;
+            for (int j = 0; j < i; j++) if ((remaining & (1UL << j)) != 0 && cardClass[j] == cardClass[i]) { dupLower = true; break; }
+            if (dupLower) continue;
+
             // a single-target attack branches over each live enemy target; everything else has one branch
             bool singleTarget = c.AttackTarget == Tgt.OneEnemy && c.Damage > 0;
             if (singleTarget)
@@ -155,9 +203,15 @@ public static class TurnSim
                 for (int t = 0; t < enemies.Length; t++)
                 {
                     if (!enemies[t].Alive) continue;
+                    // T2: among CURRENTLY-identical live enemies, target only the first — the others are
+                    // symmetric (root-identical peers get their per-enemy max copied back in Solve).
+                    bool dupTarget = false;
+                    for (int u = 0; u < t; u++) if (enemies[u].Alive && SameSig(enemies[u], enemies[t])) { dupTarget = true; break; }
+                    if (dupTarget) continue;
+
                     nodes++;
                     var (np, ne, nr) = Play(p, enemies, hand, remaining, i, t);
-                    Recurse(np, ne, hand, nr, initialHp, ref best, visited, ref nodes, cap);
+                    Recurse(np, ne, hand, cardClass, nr, initialHp, ref best, visited, ref nodes, cap, payloadPlayed: true);
                     if (nodes >= cap) return;
                 }
             }
@@ -165,7 +219,7 @@ public static class TurnSim
             {
                 nodes++;
                 var (np, ne, nr) = Play(p, enemies, hand, remaining, i, -1);
-                Recurse(np, ne, hand, nr, initialHp, ref best, visited, ref nodes, cap);
+                Recurse(np, ne, hand, cardClass, nr, initialHp, ref best, visited, ref nodes, cap, payloadPlayed || c.IsAttack);
                 if (nodes >= cap) return;
             }
         }
