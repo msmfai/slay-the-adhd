@@ -1,0 +1,12 @@
+{
+  "id": "PokaYokeHarness",
+  "name": "Poka-Yoke Harness (test driver)",
+  "author": "marin",
+  "description": "Test-only: unlocks AutoSlay, mutes audio (TestMode), speeds up, and pilots a run so the Poka-Yoke patches execute headless. Not for normal play.",
+  "version": "0.1.0",
+  "min_game_version": "0.107.1",
+  "has_dll": true,
+  "has_pck": false,
+  "affects_gameplay": true,
+  "dependencies": []
+}

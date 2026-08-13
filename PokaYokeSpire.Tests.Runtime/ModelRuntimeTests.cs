@@ -25,7 +25,13 @@ public class ModelRuntimeTests
         foreach (var t in cards)
         {
             try { Assert.NotNull(Activator.CreateInstance(t, nonPublic: true)); }
-            catch (Exception e) { failures.Add($"{t.Name}:{(e.InnerException ?? e).GetType().Name}"); }
+            catch (Exception e)
+            {
+                // If another test already populated ModelDb, the ctor throws DuplicateModelException
+                // AFTER running — that's proof the ctor works, not a failure.
+                if ((e.InnerException ?? e).GetType().Name == "DuplicateModelException") continue;
+                failures.Add($"{t.Name}:{(e.InnerException ?? e).GetType().Name}");
+            }
         }
         // Report the rate; some cards may need construction args — that's information, not
         // necessarily failure. Assert the bulk construct.

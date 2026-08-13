@@ -1,6 +1,7 @@
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Nodes.Combat; // NEnergyCounter
+using PokaYokeSpire.Spatial;           // CombatHudLower
 
 namespace PokaYokeSpire.Features;
 
@@ -22,28 +23,61 @@ internal static class EnergyCounterFeature
     private static Vector2? _manualPos;   // set when the counter is ctrl-dragged
     private static double _lastHeight = double.NaN;
 
+    private static bool _loggedActive;
+
     private static void Postfix(NEnergyCounter __instance)
     {
-        Instance = __instance;
+        // FAIL-OPEN: this runs every frame; an exception here (e.g. another mod changed the
+        // counter's structure) must never break the energy counter's own _Process.
+        try
+        {
+            Instance = __instance;
+            if (!_loggedActive)
+            {
+                _loggedActive = true;
+                MegaCrit.Sts2.Core.Logging.Log.Info("[Poka-Yoke] feature4 ACTIVE: energy-counter _Process hook running in combat");
+            }
 
-        // Overlays parented to the energy counter: keep them (re)built + positioned.
-        RadialRelicsManager.UpdateAll(__instance);
-        BlueCounterManager.UpdateAll(__instance);
+            // Measure the energy-number text height and publish the hand RAISE for HandLowerFeature
+            // (negative Y = up).
+            float textH = MeasureTextHeight(__instance);
+            HudLowerState.HandOffsetY = Config.RaiseCombatHud ? -CombatHudLower.HandRaise(textH) : 0f;
 
-        if (!Config.CenterEnergyCounter) return;
+            // Overlays parented to the energy counter: keep them (re)built + positioned.
+            RadialRelicsManager.UpdateAll(__instance);
+            BlueCounterManager.UpdateAll(__instance);
 
-        // Moving the height slider cancels any dragged position.
-        if (Config.EnergyCounterHeight != _lastHeight) { _manualPos = null; _lastHeight = Config.EnergyCounterHeight; }
+            if (!Config.CenterEnergyCounter) return;
 
-        // While being ctrl-dragged, let the drag own the position (and remember it).
-        if (ReferenceEquals(DragHandler.Dragged, __instance)) { _manualPos = __instance.GlobalPosition; return; }
-        // Dropped somewhere by a drag -> stay put until the slider moves.
-        if (_manualPos is { } mp) { __instance.GlobalPosition = mp; return; }
+            // Moving the height slider cancels any dragged position.
+            if (Config.EnergyCounterHeight != _lastHeight) { _manualPos = null; _lastHeight = Config.EnergyCounterHeight; }
 
-        Vector2 viewport = __instance.GetViewportRect().Size;
-        Vector2 size = __instance.Size;
-        __instance.GlobalPosition = new Vector2(
-            viewport.X * 0.5f - size.X * 0.5f,
-            viewport.Y * (float)Config.EnergyCounterHeight - size.Y * 0.5f);
+            // While being ctrl-dragged, let the drag own the position (and remember it).
+            if (ReferenceEquals(DragHandler.Dragged, __instance)) { _manualPos = __instance.GlobalPosition; return; }
+            // Dropped somewhere by a drag -> stay put until the slider moves.
+            if (_manualPos is { } mp) { __instance.GlobalPosition = mp; return; }
+
+            Vector2 viewport = __instance.GetViewportRect().Size;
+            Vector2 size = __instance.Size;
+            float raise = Config.RaiseCombatHud ? CombatHudLower.CounterRaise(textH) : 0f;
+            __instance.GlobalPosition = new Vector2(
+                viewport.X * 0.5f - size.X * 0.5f,
+                viewport.Y * (float)Config.EnergyCounterHeight - size.Y * 0.5f - raise);
+        }
+        catch { /* fail-open: never disturb the counter's own processing */ }
     }
+
+    /// Height of the energy number ("Label" MegaLabel child), clamped to a sane range; falls back if
+    /// it isn't laid out yet. This is the unit all the HUD-lowering offsets are measured in.
+    private static float MeasureTextHeight(NEnergyCounter counter)
+    {
+        try
+        {
+            var label = counter.GetNodeOrNull<Control>("Label");
+            float h = (label != null && label.Size.Y > 1f) ? label.Size.Y : 48f;
+            return Mathf.Clamp(h, 20f, 120f);
+        }
+        catch { return 48f; }
+    }
+
 }

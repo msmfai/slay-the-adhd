@@ -22,6 +22,21 @@
   <!-- Compile the mod's pure/logic source directly so it can be unit tested. -->
   <ItemGroup>
     <Compile Include="../PokaYokeSpire/src/Layout.cs" />
+    <Compile Include="../PokaYokeSpire/src/Spatial/Spatial.cs" />
+    <Compile Include="../PokaYokeSpire/src/Spatial/DeckRowLayout.cs" />
+    <Compile Include="../PokaYokeSpire/src/Spatial/CombatHudLayout.cs" />
+    <Compile Include="../PokaYokeSpire/src/Spatial/EnemyFormation.cs" />
+    <Compile Include="../PokaYokeSpire/src/Spatial/SidePanelLayout.cs" />
+    <Compile Include="../PokaYokeSpire/src/Spatial/CombatHudLower.cs" />
+    <Compile Include="../PokaYokeSpire/src/Combat/DeckStats.cs" />
+    <Compile Include="../PokaYokeSpire/src/Combat/CardFactReader.cs" />
+    <Compile Include="../PokaYokeSpire/src/GuardLogic.cs" />
     <Compile Include="../PokaYokeSpire/src/Relics/RelicRegistry.cs" />
+    <Compile Include="../PokaYokeSpire/src/Combat/IncomingDamage.cs" />
+    <Compile Include="../PokaYokeSpire/src/Combat/EndOfTurnBlockRegistry.cs" />
+    <Compile Include="../PokaYokeSpire/src/Combat/CardTargetPreview.cs" />
+    <Compile Include="../PokaYokeSpire/src/Combat/LethalCalc.cs" />
+    <Compile Include="../PokaYokeSpire/src/Combat/HitCountRegistry.cs" />
+    <Compile Include="../PokaYokeSpire/src/Combat/LethalSolver.cs" />
   </ItemGroup>
 </Project>

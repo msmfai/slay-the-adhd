@@ -65,8 +65,14 @@ Two complementary suites, **61 tests**, no game launch and no running Godot requ
   counter registry.
 
 ```bash
-./run-all-tests.sh
+./run-all-tests.sh      # both test suites
+./headless-loop.sh      # build + install + verify, with a per-feature PASS/FAIL matrix
 ```
+
+`headless-loop.sh` is the develop-and-check cycle: it builds the mod, installs it, runs the
+suites against the real `sts2.dll` headless (no game launch, no window), and reports each
+feature green/red. See [HEADLESS.md](HEADLESS.md) for what it can and can't verify without
+launching the game.
 
 Requires **Slay the Spire 2** installed (for `sts2.dll`) and the .NET 9 SDK. Point the
 build/tests at a non-default install with the `STS2_GAME_DIR` environment variable.

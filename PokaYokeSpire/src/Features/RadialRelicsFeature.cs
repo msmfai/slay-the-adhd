@@ -21,9 +21,18 @@ internal static class RadialRelicsFeature
 {
     private static bool Prefix(RelicModel model)
     {
-        if (!Config.RadialRelics) return true; // feature off -> normal inspect screen
-        RadialRelicsManager.Toggle(model);
-        return false;
+        // FAIL-OPEN: on any error, fall back to the game's normal inspect screen.
+        try
+        {
+            if (!Config.RadialRelics) return true; // feature off -> normal inspect screen
+            RadialRelicsManager.Toggle(model);
+            return false;
+        }
+        catch (System.Exception e)
+        {
+            MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] feature5 error (failing open): {e.Message}");
+            return true;
+        }
     }
 }
 
@@ -36,6 +45,7 @@ internal static class RadialRelicsManager
     internal static void Toggle(RelicModel model)
     {
         if (!_active.Remove(model)) _active.Add(model);
+        MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] feature5 FIRED: radial relic toggle ({_active.Count} pinned)");
         _builtFor = null; // force rebuild next frame
     }
 

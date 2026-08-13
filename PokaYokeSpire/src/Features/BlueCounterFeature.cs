@@ -24,14 +24,20 @@ internal static class BlueCounterRightClick
 {
     private static void Postfix(NClickableControl __instance, InputEvent inputEvent)
     {
-        if (!Config.BlueCounters) return;
-        if (inputEvent is not InputEventMouseButton mb) return;
-        if (mb.ButtonIndex != MouseButton.Right || !mb.Pressed) return;
-        if (__instance is not NRelicInventoryHolder holder) return;
+        // FAIL-OPEN: this postfixes a very hot input method on EVERY clickable control, so it
+        // must never throw — that would break input handling game-wide.
+        try
+        {
+            if (!Config.BlueCounters) return;
+            if (inputEvent is not InputEventMouseButton mb) return;
+            if (mb.ButtonIndex != MouseButton.Right || !mb.Pressed) return;
+            if (__instance is not NRelicInventoryHolder holder) return;
 
-        RelicModel? model = holder.Relic?.Model;
-        if (model == null || !model.ShowCounter) return;
-        BlueCounterManager.Toggle(model);
+            RelicModel? model = holder.Relic?.Model;
+            if (model == null || !model.ShowCounter) return;
+            BlueCounterManager.Toggle(model);
+        }
+        catch { /* fail-open: never disturb input processing */ }
     }
 }
 
@@ -49,6 +55,7 @@ internal static class BlueCounterManager
     internal static void Toggle(RelicModel model)
     {
         if (!_active.Remove(model)) _active.Add(model);
+        MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] feature6 FIRED: relic counter toggle ({_active.Count} shown)");
         // Force a rebuild next frame so visuals match _active.
         _builtFor = null;
     }

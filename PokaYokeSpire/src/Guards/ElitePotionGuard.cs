@@ -27,27 +27,32 @@ public static class ElitePotionGuard
 
     private static void Postfix(NEndTurnButton __instance)
     {
-        if (!Config.GuardElitePotion) return;
+        // FAIL-OPEN: a postfix, so on any error we simply skip the reminder — never disturb
+        // the turn-start the button just animated in.
+        try
+        {
+            if (!Config.GuardElitePotion) return;
 
-        // _combatState is private on the button; read it the way guard 1 does.
-        CombatState? state = Traverse.Create(__instance).Field("_combatState").GetValue<CombatState>();
-        if (state == null) return;
+            // _combatState is private on the button; read it the way guard 1 does.
+            CombatState? state = Traverse.Create(__instance).Field("_combatState").GetValue<CombatState>();
+            if (state == null) return;
 
-        // Once per fight -> lands on the first player turn (turn 1).
-        if (ReferenceEquals(state, _remindedForCombat)) return;
+            // Once per fight -> lands on the first player turn (turn 1); enforced by the
+            // alreadyReminded flag fed into GuardLogic.ShouldRemindPotion below.
+            RoomType? room = state.Encounter?.RoomType;
+            bool isEliteOrBoss = room == RoomType.Elite || room == RoomType.Boss;
 
-        RoomType? room = state.Encounter?.RoomType;
-        if (room != RoomType.Elite && room != RoomType.Boss) return;
+            Player? me = LocalContext.GetMe(state);
+            bool hasPotion = me != null && me.Potions.Any();
+            bool alreadyReminded = ReferenceEquals(state, _remindedForCombat);
 
-        Player? me = LocalContext.GetMe(state);
-        if (me == null || !me.Potions.Any()) return; // no potions -> nothing to remind about
+            if (!GuardLogic.ShouldRemindPotion(isEliteOrBoss, hasPotion, alreadyReminded)) return;
 
-        _remindedForCombat = state;
-        bool allSlotsFull = !me.HasOpenPotionSlots; // every potion slot occupied
-        string body = allSlotsFull
-            ? "[color=#ff2d2d]ALL POTION SLOTS ARE FULL — USE A POTION BEFORE YOU LOSE DROPS![/color]"
-            : "You still have unused potions in this elite/boss fight.";
-
-        PopupHelper.ShowNotice(title: "Potions", body: body); // reminder only — single OK
+            _remindedForCombat = state;
+            bool allSlotsFull = !me!.HasOpenPotionSlots; // every potion slot occupied
+            MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] guard2 FIRED: potion reminder (allSlotsFull={allSlotsFull})");
+            PopupHelper.ShowNotice(title: "Potions", body: GuardLogic.PotionBody(allSlotsFull)); // reminder only — single OK
+        }
+        catch (System.Exception e) { MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] guard2 error (skipping): {e.Message}"); }
     }
 }
