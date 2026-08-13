@@ -42,8 +42,8 @@ internal static class EndTurnDamageFeature
     private static Creature? _hoveredEnemy;
     private static NTargetManager? _wiredMgr;
 
-    private static readonly Color BlueTint = new Color(0.18f, 0.42f, 1.8f);
-    private static readonly Color RedTint = new Color(1.9f, 0.5f, 0.28f);
+    private static CombatState? _lastCombat;          // last state, so a live-tuning reload can rebuild+refresh
+    private static bool _subscribedToLiveTuning;
 
     private static void Postfix(NEndTurnButton __instance, CombatState combatState)
         => Feature.Run("combat-orbs", () => true, () => Body(combatState));
@@ -60,6 +60,10 @@ internal static class EndTurnDamageFeature
 
             var counter = EnergyCounterFeature.Instance;
             if (counter == null || !GodotObject.IsInstanceValid(counter)) return;
+
+            _lastCombat = combatState;
+            LiveTuning.Ensure(counter);   // debug-only: watch tunables.json and hot-rebuild on edit
+            if (!_subscribedToLiveTuning) { _subscribedToLiveTuning = true; LiveTuning.Reloaded += OnTunablesReloaded; }
 
             if (_left?.Gem == null || !GodotObject.IsInstanceValid(_left.Gem) || !ReferenceEquals(_gemFor, counter))
             { BuildOrbs(counter); _gemFor = counter; }
@@ -129,16 +133,22 @@ internal static class EndTurnDamageFeature
         if (_left?.Gem != null && GodotObject.IsInstanceValid(_left.Gem)) _left.Gem.QueueFree();
         if (_right?.Gem != null && GodotObject.IsInstanceValid(_right.Gem)) _right.Gem.QueueFree();
         _orbNatural = counter.Size.X > 1f ? counter.Size.X : 100f;
-        _left = BuildOrb(counter, "PokaYokeIncomingGem", isLeft: true, BlueTint, IncomingTip);
-        _right = BuildOrb(counter, "PokaYokeOffenseGem", isLeft: false, RedTint, OffenseTip);
+        _left = BuildOrb(counter, "PokaYokeIncomingGem", isLeft: true, Tunables.GemBlueTint, Tunables.IncomingTip);
+        _right = BuildOrb(counter, "PokaYokeOffenseGem", isLeft: false, Tunables.GemRedTint, Tunables.OffenseTip);
     }
 
-    private const string IncomingTip =
-        "Incoming damage\nx / y  —  the HP you'll actually lose this turn if you end now (after block)\n" +
-        "over the raw damage the enemies are outputting.";
-    private const string OffenseTip =
-        "Your damage\nx / y  —  the most HP you can deal this turn over that plus damage that lands before\n" +
-        "your next play (poison, start-of-turn effects, …). Hover an enemy to scope both numbers to it.";
+    /// Live-tuning callback: tunables.json changed — rebuild both gems with the new values and refresh
+    /// their text using the last combat state (debug only; no-op if the counter is gone).
+    private static void OnTunablesReloaded()
+    {
+        try
+        {
+            if (_gemFor == null || !GodotObject.IsInstanceValid(_gemFor)) return;
+            BuildOrbs(_gemFor);
+            if (_lastCombat != null) Body(_lastCombat);
+        }
+        catch { }
+    }
 
     /// One-time dump of the energy counter's ENTIRE subtree (node names, types, visibility, transforms)
     /// so the real geometry & structure of the orb art can be read from a log instead of guessed — the
@@ -210,7 +220,7 @@ internal static class EndTurnDamageFeature
     private static Orb BuildOrb(NEnergyCounter counter, string name, bool isLeft, Color tint, string tooltip)
     {
         float ch = counter.Size.Y > 1f ? counter.Size.Y : _orbNatural;
-        const float fontFrac = 0.20f;   // ⅔ of the previous 0.30 — smaller number in each gem
+        float fontFrac = Tunables.GemFontFrac;   // live-tunable; ⅔ of the previous 0.30
 
         // The gem must carry the counter's SIZE: the orb art (Layers/RotationLayers) is anchored
         // full-rect, so in a zero-size parent it collapses to 0×0 and draws nothing. Giving the gem the
@@ -253,7 +263,7 @@ internal static class EndTurnDamageFeature
 
         // Placement is the pure, lint-tested Spatial.GemLayout math (NOT eyeballed): scale/offset about
         // the orb centre (size/2) so each gem flanks the counter at the same height without occluding it.
-        var plan = Spatial.GemLayout.For(counter.Size.X);
+        var plan = Spatial.GemLayout.For(counter.Size.X, Tunables.GemScale, Tunables.GemGap);
         gem.PivotOffset = counter.Size * 0.5f;
         gem.Scale = new Vector2(plan.Scale, plan.Scale);
         float offX = plan.OffX;

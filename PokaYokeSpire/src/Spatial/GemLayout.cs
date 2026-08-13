@@ -25,23 +25,25 @@ public static class GemLayout
     public readonly record struct Plan(float Pivot, float OffX, float Scale);
 
     /// Pivot (orb centre), horizontal offset, and scale for a gem, from the square counter's side length.
-    public static Plan For(float counterSize)
+    /// scale/gap default to the constants but can be overridden live (Tunables) — the geometry
+    /// invariants (no occlusion, symmetry, same height) hold for any sane scale &gt; 0, gap ≥ 0.
+    public static Plan For(float counterSize, float scale = Scale, float gap = Gap)
     {
         float half = counterSize * 0.5f;
-        float offX = half + Gap + half * Scale;   // counterHalf + gap + scaled gemHalf  ⇒  edge clearance == Gap
-        return new Plan(half, offX, Scale);
+        float offX = half + gap + half * scale;   // counterHalf + gap + scaled gemHalf  ⇒  edge clearance == gap
+        return new Plan(half, offX, scale);
     }
 
     public static float CounterOrbRadius(float counterSize) => counterSize * 0.5f;
-    public static float GemOrbRadius(float counterSize) => counterSize * 0.5f * Scale;
+    public static float GemOrbRadius(float counterSize, float scale = Scale) => counterSize * 0.5f * scale;
 
     /// The three orb rectangles (counter, left gem, right gem) in counter-local space — the hypergraph
     /// the spatial lints run over. Each orb is a square centred on its computed orb centre.
-    public static List<UiRect> OrbRects(float counterSize)
+    public static List<UiRect> OrbRects(float counterSize, float scale = Scale, float gap = Gap)
     {
         float half = counterSize * 0.5f;
-        var plan = For(counterSize);
-        float gemR = GemOrbRadius(counterSize);
+        var plan = For(counterSize, scale, gap);
+        float gemR = GemOrbRadius(counterSize, scale);
         return new List<UiRect>
         {
             Square("counter", half, half, half),

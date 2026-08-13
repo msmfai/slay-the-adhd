@@ -57,6 +57,25 @@ public class GemLayoutTests
         Assert.Equal(GemLayout.Gap, gap, 3);
     }
 
+    [Theory]   // live tuning can change scale/gap; the geometry invariants must hold across their range
+    [InlineData(0.40f, 6f)] [InlineData(0.5f, 14f)] [InlineData(2f / 3f, 14f)]
+    [InlineData(0.80f, 30f)] [InlineData(1.0f, 0f)]
+    public void Invariants_HoldAcrossTunableScaleAndGap(float scale, float gap)
+    {
+        const float size = 128f;
+        var orbs = GemLayout.OrbRects(size, scale, gap);
+        Assert.Empty(SpatialGraph.OcclusionViolations(orbs, maxOverlapFrac: 0f));   // never occlude
+
+        var counter = orbs.Single(o => o.Id == "counter");
+        var l = orbs.Single(o => o.Id == "gemL");
+        var r = orbs.Single(o => o.Id == "gemR");
+        float cx = counter.X + counter.W / 2f, cy = counter.Y + counter.H / 2f;
+        Assert.Equal(cy, l.Y + l.H / 2f, 3);                    // same height
+        Assert.Equal(cy, r.Y + r.H / 2f, 3);
+        Assert.Equal(cx - (l.X + l.W / 2f), (r.X + r.W / 2f) - cx, 3);   // symmetric
+        Assert.Equal(gap, SpatialGraph.HorizontalGap(counter, r), 3);    // clearance == gap exactly
+    }
+
     [Fact]
     public void ArtCentre_MapsBesideCounter_NotOntoOrigin()
     {

@@ -25,6 +25,7 @@
     <Compile Include="../PokaYokeSpire/src/Config.cs" />
     <Compile Include="../PokaYokeSpire/src/Core/Features.cs" />
     <Compile Include="../PokaYokeSpire/src/Core/DebugLog.cs" />
+    <Compile Include="../PokaYokeSpire/src/Core/Tunables.cs" />
     <Compile Include="../PokaYokeSpire/src/Layout.cs" />
     <Compile Include="../PokaYokeSpire/src/Spatial/Spatial.cs" />
     <Compile Include="../PokaYokeSpire/src/Spatial/GemLayout.cs" />
