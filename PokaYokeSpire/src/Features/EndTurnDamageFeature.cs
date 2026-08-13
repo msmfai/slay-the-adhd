@@ -69,31 +69,32 @@ internal static class EndTurnDamageFeature
             { BuildOrbs(counter); _gemFor = counter; }
             if (_left == null || _right == null) return;
 
-            var snap = CombatSnapshot.Build(combatState);
-
-            // LEFT (defense) — x / y : x = HP you'll take if you play no more block (current block +
-            // end-of-turn relics/plating), y = the MINIMUM you could take by also playing your hand's
-            // block optimally (Dex/Frail-adjusted).
+            // ONE forward turn-simulator drives both gems: it plays out every reachable sequence of the
+            // hand (path-dependence memoized, node-bounded) and reports the max damage you can do and the
+            // min HP you can lose. x (defense do-nothing) stays exact via the game's own incoming hook.
+            var sim = TurnSimReader.Read(combatState);
             var p = IncomingDamage.Compute(combatState);
             int take = p.Valid ? p.NetHpLoss : 0;
-            int handBlock = snap != null ? DefenseCalc.MaxBlock(snap.BlockCards, snap.Energy, snap.Dexterity, snap.PlayerFrail) : 0;
-            int minTake = p.Valid ? DefenseCalc.MinDamageTaken(p.Incoming, p.BlockAtEnemyTurn, handBlock) : 0;
-            _leftText = $"{take} → {minTake}";
 
-            // RIGHT — offense totals + per-enemy cache
-            if (snap != null)
+            if (sim != null)
             {
-                var dmg = LethalSolver.MaxDamage(snap.Cards, snap.Energy, snap.StartStrength, snap.Enemies, snap.PlayerWeak);
-                var sched = ScheduledDamage.PerEnemy(combatState, snap.EnemyRefs);
+                var r = TurnSim.Solve(sim.Player, sim.Enemies, sim.Hand, nodeCap: 40000);
+                var sched = ScheduledDamage.PerEnemy(combatState, sim.EnemyRefs);
                 int schedTotal = 0;
                 foreach (var s in sched) schedTotal += s;
-                _xTotal = dmg.Total;
+                _xTotal = r.MaxDamage;
                 _yTotal = _xTotal + schedTotal;
-                _xPerEnemy = dmg.PerEnemy;
+                _xPerEnemy = r.MaxPerEnemy;
                 _schedPerEnemy = sched;
-                _enemyRefs = snap.EnemyRefs;
+                _enemyRefs = sim.EnemyRefs;
+                int minTake = System.Math.Min(take, r.MinHpLost);   // y ≤ x (playing only helps)
+                _leftText = $"{take} → {minTake}";
             }
-            else { _xTotal = 0; _yTotal = 0; _xPerEnemy = System.Array.Empty<int>(); _schedPerEnemy = System.Array.Empty<int>(); _enemyRefs = new(); }
+            else
+            {
+                _xTotal = 0; _yTotal = 0; _xPerEnemy = System.Array.Empty<int>(); _schedPerEnemy = System.Array.Empty<int>(); _enemyRefs = new();
+                _leftText = $"{take} → {take}";
+            }
 
             WireHover();
             _rightText = RightText();
