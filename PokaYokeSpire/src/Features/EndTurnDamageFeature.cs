@@ -176,23 +176,22 @@ internal static class EndTurnDamageFeature
             setText = txt => { try { lbl.Text = txt; } catch { } };
         }
 
-        // Position by the copied content's ACTUAL bounding box: that box IS the counter's real orb
-        // (the counter's local origin is not its centre), so the gems sit symmetric about the orb's
-        // centre and scale ⅔ around it. Robust against wherever the counter draws its pieces.
-        Vector2 min = new(float.MaxValue, float.MaxValue), max = new(float.MinValue, float.MinValue);
-        foreach (var child in gem.GetChildren())
-            if (child is Control c) { min = min.Min(c.Position); max = max.Max(c.Position + c.Size); }
-        if (max.X > min.X)
+        // The counter draws its orb centred on its OWN ORIGIN (its child art nodes are zero-size
+        // containers, so bounding-box tricks don't work). Scale about the origin and place the gem's
+        // centre beside the counter's centre. Geometry is logged (DebugLogging) so the exact offsets
+        // can be verified/tuned from a real run instead of guessed.
+        gem.PivotOffset = Vector2.Zero;
+        gem.Scale = new Vector2(scale, scale);
+        float orbW = _orbNatural;
+        float offX = orbW * 0.5f + gap + orbW * scale * 0.5f;
+        gem.Position = new Vector2(isLeft ? -offX : offX, 0f);
+
+        if (Core.DebugLog.Enabled)
         {
-            gem.PivotOffset = (min + max) * 0.5f;                     // scale around the content centre
-            gem.Scale = new Vector2(scale, scale);
-            float offX = (max.X - min.X) * (0.5f + scale * 0.5f) + gap;  // orb half + gap + scaled orb half
-            gem.Position = new Vector2(isLeft ? -offX : offX, 0f);
-        }
-        else
-        {
-            gem.Scale = new Vector2(scale, scale);
-            gem.Position = new Vector2(isLeft ? -(ch + gap) : ch + gap, 0f);
+            var geo = $"gem '{name}': counterSize={counter.Size} orbNatural={_orbNatural} gemPos={gem.Position} offX={offX}; pieces=";
+            foreach (var child in gem.GetChildren())
+                if (child is Control c) geo += $"[{c.GetType().Name} pos={c.Position} size={c.Size} scale={c.Scale}]";
+            Core.DebugLog.Debug(geo);
         }
 
         Overlay.Attach(counter, name, () => gem);
