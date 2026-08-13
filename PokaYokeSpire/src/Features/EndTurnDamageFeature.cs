@@ -71,13 +71,14 @@ internal static class EndTurnDamageFeature
 
             var snap = CombatSnapshot.Build(combatState);
 
-            // LEFT (defense) — a single number: the MINIMUM HP you can take this turn, after current block
-            // + everything that triggers at end-turn before enemies attack (Plating/Metallicize/Orichalcum/
-            // relics) + playing your hand's block optimally (Dex/Frail-adjusted).
+            // LEFT (defense) — x / y : x = HP you'll take if you play no more block (current block +
+            // end-of-turn relics/plating), y = the MINIMUM you could take by also playing your hand's
+            // block optimally (Dex/Frail-adjusted).
             var p = IncomingDamage.Compute(combatState);
+            int take = p.Valid ? p.NetHpLoss : 0;
             int handBlock = snap != null ? DefenseCalc.MaxBlock(snap.BlockCards, snap.Energy, snap.Dexterity, snap.PlayerFrail) : 0;
             int minTake = p.Valid ? DefenseCalc.MinDamageTaken(p.Incoming, p.BlockAtEnemyTurn, handBlock) : 0;
-            _leftText = minTake.ToString();
+            _leftText = $"{take} / {minTake}";
 
             // RIGHT — offense totals + per-enemy cache
             if (snap != null)
@@ -109,15 +110,21 @@ internal static class EndTurnDamageFeature
     internal static Creature? HoveredEnemy => _hoveredEnemy;
     internal static bool HoveredEnemyLethal;
 
-    /// The offense orb's text — a SINGLE number: the max damage you can do this turn (cards + scheduled).
-    /// Scoped to the hovered enemy if one is hovered, else the total across all enemies.
+    /// The offense orb's text — x / y : x = max damage you can do BEFORE enemies act (cards this turn),
+    /// y = max BEFORE your next turn (that + scheduled damage like poison). Scoped to the hovered enemy
+    /// if one is hovered, else totals across all enemies.
     private static string RightText()
     {
+        int x = _xTotal, y = _yTotal;
         if (_hoveredEnemy != null)
             for (int i = 0; i < _enemyRefs.Count && i < _xPerEnemy.Length && i < _schedPerEnemy.Length; i++)
                 if (ReferenceEquals(_enemyRefs[i], _hoveredEnemy))
-                    return (_xPerEnemy[i] + _schedPerEnemy[i]).ToString();
-        return _yTotal.ToString();
+                {
+                    x = _xPerEnemy[i];
+                    y = x + _schedPerEnemy[i];
+                    break;
+                }
+        return $"{x} / {y}";
     }
 
     /// Green-glow decision: when hovering an enemy, glow if your damage to it (cards + scheduled) can
