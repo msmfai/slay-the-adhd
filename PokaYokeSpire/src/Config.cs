@@ -16,8 +16,9 @@ public class Config : SimpleModConfig
     public static bool DisableAllOverlays { get; set; } = false;
 
     /// DEBUG LOGGING — write a detailed, leveled log (errors, warnings, feature activity) to
-    /// "pokayoke-debug.log" next to the mod, so problems from a normal playthrough are easy to read
-    /// afterwards. Off by default (no overhead). Turn on, play, then share the log.
+    /// modding/logs/pokayoke-<timestamp>.log, so problems from a normal playthrough are easy to read
+    /// afterwards. Off by default (no overhead). Turn on in the menu, play, then share the log.
+    /// (The current debugging session has it enabled via the persisted PokaYokeSpire.cfg.)
     public static bool DebugLogging { get; set; } = false;
 
     [ConfigSection("guards")]

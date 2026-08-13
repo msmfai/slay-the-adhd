@@ -121,13 +121,77 @@ internal static class EndTurnDamageFeature
         _right?.SetText?.Invoke(_rightText);
     }
 
+    private static bool _dumped;
+
     private static void BuildOrbs(NEnergyCounter counter)
     {
+        DumpCounterTree(counter);
         if (_left?.Gem != null && GodotObject.IsInstanceValid(_left.Gem)) _left.Gem.QueueFree();
         if (_right?.Gem != null && GodotObject.IsInstanceValid(_right.Gem)) _right.Gem.QueueFree();
         _orbNatural = counter.Size.X > 1f ? counter.Size.X : 100f;
         _left = BuildOrb(counter, "PokaYokeIncomingGem", isLeft: true, BlueTint);
         _right = BuildOrb(counter, "PokaYokeOffenseGem", isLeft: false, RedTint);
+    }
+
+    /// One-time dump of the energy counter's ENTIRE subtree (node names, types, visibility, transforms)
+    /// so the real geometry & structure of the orb art can be read from a log instead of guessed — the
+    /// LLM is blind, so this is its eyes. Also reports the concrete runtime types of _layers/_label etc.
+    private static void DumpCounterTree(NEnergyCounter counter)
+    {
+        if (_dumped || !Core.DebugLog.Enabled) return;
+        _dumped = true;
+        try
+        {
+            Core.DebugLog.Debug($"=== ENERGY COUNTER === gpos={counter.GlobalPosition} pos={counter.Position} size={counter.Size} scale={counter.Scale} pivot={counter.PivotOffset}");
+            foreach (var fn in new[] { "_layers", "_rotationLayers", "_label" })
+            {
+                var v = Traverse.Create(counter).Field(fn).GetValue();
+                Core.DebugLog.Debug($"  field {fn} => {(v == null ? "null" : v.GetType().FullName)}");
+            }
+            DumpNode(counter, 0);
+        }
+        catch (System.Exception e) { Core.DebugLog.Error("DumpCounterTree", e); }
+    }
+
+    private static void DumpNode(Node n, int depth)
+    {
+        string pad = new string(' ', depth * 2);
+        string info = n switch
+        {
+            Control c => $"{pad}{n.Name} <{n.GetType().Name}> vis={c.Visible} pos={c.Position} size={c.Size} scale={c.Scale} mod={c.Modulate}",
+            Node2D n2 => $"{pad}{n.Name} <{n.GetType().Name}:Node2D> vis={n2.Visible} pos={n2.Position} scale={n2.Scale} mod={n2.Modulate}",
+            CanvasItem ci => $"{pad}{n.Name} <{n.GetType().Name}:CanvasItem> vis={ci.Visible}",
+            _ => $"{pad}{n.Name} <{n.GetType().Name}>",
+        };
+        Core.DebugLog.Debug(info);
+        if (depth >= 6) return;
+        foreach (var child in n.GetChildren()) DumpNode(child, depth + 1);
+    }
+
+    /// Clone one of the counter's art fields (orb body / swirl). The field may be a Control OR a Node2D —
+    /// grabbing it as Control silently returned null for a Node2D and dropped the art, so we accept any
+    /// CanvasItem and LOG (WARN) whenever a piece can't be cloned instead of failing invisibly.
+    private static CanvasItem? CloneArtField(NEnergyCounter counter, string field, string gemName, Color tint)
+    {
+        try
+        {
+            var v = Traverse.Create(counter).Field(field).GetValue();
+            if (v is not CanvasItem src || !GodotObject.IsInstanceValid(src))
+            {
+                if (Core.DebugLog.Enabled)
+                    Core.DebugLog.Warn($"gem '{gemName}': field {field} is {(v == null ? "null" : v.GetType().Name)}, not a live CanvasItem — orb art piece skipped");
+                return null;
+            }
+            if (src.Duplicate() is not CanvasItem dup)
+            {
+                if (Core.DebugLog.Enabled)
+                    Core.DebugLog.Warn($"gem '{gemName}': field {field} ({src.GetType().Name}) did not Duplicate() to a CanvasItem — orb art piece skipped");
+                return null;
+            }
+            dup.Modulate = tint;
+            return dup;
+        }
+        catch (System.Exception e) { Core.DebugLog.Error($"CloneArtField({field})", e); return null; }
     }
 
     /// A gem is a FIXED ⅔-size copy of the energy counter's VISUAL PIECES — its orb body (_layers), its
@@ -142,26 +206,31 @@ internal static class EndTurnDamageFeature
         const float gap = 14f;
         float ch = counter.Size.Y > 1f ? counter.Size.Y : _orbNatural;
 
-        var gem = new Control { Name = name, MouseFilter = Control.MouseFilterEnum.Ignore };
+        // The gem must carry the counter's SIZE: the orb art (Layers/RotationLayers) is anchored
+        // full-rect, so in a zero-size parent it collapses to 0×0 and draws nothing. Giving the gem the
+        // counter's size lets the anchored art fill it exactly like the real counter.
+        var gem = new Control { Name = name, MouseFilter = Control.MouseFilterEnum.Ignore, Size = counter.Size };
 
-        // orb body — keep each piece's original position so the layout matches the counter exactly.
-        if (Traverse.Create(counter).Field("_layers").GetValue<Control>() is { } srcLayers
-            && GodotObject.IsInstanceValid(srcLayers) && srcLayers.Duplicate() is Control layers)
-        { layers.Modulate = tint; gem.AddChild(layers); }
+        // orb body + swirl — clone whatever CanvasItem the counter actually holds (Control OR Node2D;
+        // grabbing it as Control silently dropped the art when the field was a Node2D — a whole gem's
+        // worth of "no art appears"). Keep each piece's original transform so the layout matches.
+        var layers = CloneArtField(counter, "_layers", name, tint);
+        if (layers != null) gem.AddChild(layers);
 
-        // swirl — spun by our OWN spinner (no dependency on the counter's %-name lookups or live script)
-        if (Traverse.Create(counter).Field("_rotationLayers").GetValue<Control>() is { } srcRot
-            && GodotObject.IsInstanceValid(srcRot) && srcRot.Duplicate() is Control rot)
-        { rot.Modulate = tint; gem.AddChild(rot); gem.AddChild(new VortexSpinner { Layers = rot }); }
+        var rot = CloneArtField(counter, "_rotationLayers", name, tint);
+        if (rot != null) { gem.AddChild(rot); gem.AddChild(new VortexSpinner { Layers = rot }); }
 
         // number — the real MegaLabel (font + centering), FIXED size so it never resizes per digit-count.
         System.Action<string> setText;
         if (Traverse.Create(counter).Field("_label").GetValue<Control>() is { } srcLabel
             && srcLabel.Duplicate() is MegaLabel ml)
         {
-            ml.AutoSizeEnabled = false;
-            ml.AddThemeFontSizeOverride("font_size", (int)(ch * 0.28f));
+            ml.AutoSizeEnabled = false;                                    // fixed font, no per-digit resize
+            ml.AddThemeFontSizeOverride("font_size", (int)(ch * 0.30f));
             ml.SelfModulate = Colors.White;
+            ml.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);  // fill the gem…
+            ml.HorizontalAlignment = HorizontalAlignment.Center;           // …and centre the number on the orb
+            ml.VerticalAlignment = VerticalAlignment.Center;
             gem.AddChild(ml);
             setText = txt => { try { ml.Text = txt; } catch { } };
         }
@@ -176,14 +245,14 @@ internal static class EndTurnDamageFeature
             setText = txt => { try { lbl.Text = txt; } catch { } };
         }
 
-        // The counter draws its orb centred on its OWN ORIGIN (its child art nodes are zero-size
-        // containers, so bounding-box tricks don't work). Scale about the origin and place the gem's
-        // centre beside the counter's centre. Geometry is logged (DebugLogging) so the exact offsets
-        // can be verified/tuned from a real run instead of guessed.
-        gem.PivotOffset = Vector2.Zero;
+        // The counter draws its orb centred on its PIVOT (measured: size 128, pivot (64,64) — the art
+        // fills [0,size], so its centre is size/2). Scale the gem about that same centre and offset it
+        // horizontally so the gem's orb-centre sits beside the counter's orb-centre at the SAME height.
+        //   art-centre maps to  Position + PivotOffset  ⇒  Position.x = ±(counterHalf + gap + gemHalf).
+        Vector2 centre = counter.Size * 0.5f;
+        gem.PivotOffset = centre;
         gem.Scale = new Vector2(scale, scale);
-        float orbW = _orbNatural;
-        float offX = orbW * 0.5f + gap + orbW * scale * 0.5f;
+        float offX = centre.X + gap + centre.X * scale;   // counterHalf + gap + scaled gemHalf
         gem.Position = new Vector2(isLeft ? -offX : offX, 0f);
 
         if (Core.DebugLog.Enabled)
@@ -228,14 +297,19 @@ internal static class EndTurnDamageFeature
 /// last) so the gem swirls — without running the counter's live, combat-reactive script.
 internal partial class VortexSpinner : Node
 {
-    public Control? Layers;
+    public Node? Layers;   // a Control OR Node2D subtree — spin whichever kind of child it holds
     public override void _Process(double delta)
     {
         try
         {
             if (Layers == null || !GodotObject.IsInstanceValid(Layers)) return;
+            float step = (float)delta * 30f;
             for (int i = 0; i < Layers.GetChildCount(); i++)
-                if (Layers.GetChild(i) is Control c) c.RotationDegrees += (float)delta * 30f * (i + 1);
+            {
+                var ch = Layers.GetChild(i);
+                if (ch is Control c) c.RotationDegrees += step * (i + 1);
+                else if (ch is Node2D n2) n2.RotationDegrees += step * (i + 1);
+            }
         }
         catch { }
     }

@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Reflection;
-using GameLog = MegaCrit.Sts2.Core.Logging.Log;
 
 namespace PokaYokeSpire.Core;
 
@@ -12,8 +11,9 @@ namespace PokaYokeSpire.Core;
 /// can just be read afterwards. History accumulates (newest = latest session; old ones auto-pruned to
 /// 15). Filter it with: grep -E "\[ERROR\]|\[WARN\]".
 ///
-/// ERROR/WARN lines are also mirrored into the game's own log. Writing is fully fail-open: logging can
-/// never throw into the mod. Off by default => zero overhead.
+/// Pure .NET file IO only (no Godot/game-logger dependency, so it's safe to exercise headless in
+/// tests). Writing is fully fail-open: logging can never throw into the mod. Off by default => zero
+/// overhead.
 /// </summary>
 public static class DebugLog
 {
@@ -82,8 +82,6 @@ public static class DebugLog
             if (_path == null) return;
             string line = $"{DateTime.Now:HH:mm:ss.fff} [{level}] {msg}\n";
             lock (_lock) File.AppendAllText(_path, line);
-            if (level == "ERROR" || level == "WARN")
-                try { GameLog.Info($"[Poka-Yoke:{level}] {msg}"); } catch { }
         }
         catch { /* logging must never break the mod */ }
     }
