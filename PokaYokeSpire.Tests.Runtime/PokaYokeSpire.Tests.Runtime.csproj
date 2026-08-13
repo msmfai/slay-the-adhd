@@ -45,5 +45,6 @@
     <Compile Include="../PokaYokeSpire/src/Combat/HitCountRegistry.cs" />
     <Compile Include="../PokaYokeSpire/src/Combat/LethalSolver.cs" />
     <Compile Include="../PokaYokeSpire/src/Combat/DefenseCalc.cs" />
+    <Compile Include="../PokaYokeSpire/src/Combat/TurnSim.cs" />
   </ItemGroup>
 </Project>
