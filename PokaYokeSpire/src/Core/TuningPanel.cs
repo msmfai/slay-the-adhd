@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace PokaYokeSpire.Core;
@@ -67,11 +68,18 @@ public partial class TuningPanel : CanvasLayer
         var knobs = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         scroll.AddChild(knobs);
         vb.AddChild(scroll);
-        foreach (var k in Tunables.Knobs) knobs.AddChild(BuildKnobRow(k));
+
+        // ── knobs grouped by which screen they affect ──
+        string currentSection = null;
+        foreach (var k in Tunables.Knobs.OrderBy(k => ScreenOf(k.Path), System.StringComparer.Ordinal))
+        {
+            string s = ScreenOf(k.Path);
+            if (s != currentSection) { currentSection = s; knobs.AddChild(SectionHeader(s)); }
+            knobs.AddChild(BuildKnobRow(k));
+        }
 
         // ── editable text tunables (tooltips) ──
-        knobs.AddChild(new HSeparator());
-        knobs.AddChild(new Label { Text = "Tooltips (type your own; \\n = new line)" });
+        knobs.AddChild(SectionHeader("Combat · tooltips  (type your own; \\n = new line)"));
         foreach (var tk in Tunables.TextKnobs) knobs.AddChild(BuildTextRow(tk));
 
         // ── footer: save / randomize / reset + status ──
@@ -111,6 +119,31 @@ public partial class TuningPanel : CanvasLayer
         row.AddChild(val);
         _rows.Add((k, slider, val));
         return row;
+    }
+
+    /// Which screen a knob's path belongs to (for grouping). Ordinal sort clusters Combat before Reward.
+    private static string ScreenOf(string path) => (path.Split('.')[0]) switch
+    {
+        "gem"         => "Combat · gems",
+        "hud"         => "Combat · HUD",
+        "energy"      => "Combat · energy counter",
+        "radial"      => "Combat · relics",
+        "cardPreview" => "Combat · card preview",
+        "enemy"       => "Combat · enemies",
+        "reward"      => "Reward · deck fan",
+        "deckFan"     => "Reward · deck fan",
+        "sidePanel"   => "Reward · deck stats",
+        _             => "Other",
+    };
+
+    private static Control SectionHeader(string text)
+    {
+        var box = new VBoxContainer();
+        box.AddChild(new HSeparator());
+        var lbl = new Label { Text = text };
+        lbl.AddThemeColorOverride("font_color", new Color(0.55f, 0.82f, 1f));
+        box.AddChild(lbl);
+        return box;
     }
 
     private Control BuildTextRow(Tunables.TextKnob tk)
