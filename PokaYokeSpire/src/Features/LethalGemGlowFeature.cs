@@ -13,6 +13,7 @@ using MegaCrit.Sts2.Core.Localization.DynamicVars; // CalculatedVar (dynamic hit
 using MegaCrit.Sts2.Core.Models;             // CardModel
 using MegaCrit.Sts2.Core.Nodes.Combat;       // NEnergyCounter
 using PokaYokeSpire.Combat;
+using PokaYokeSpire.Core;
 
 namespace PokaYokeSpire.Features;
 
@@ -34,7 +35,7 @@ internal static class LethalGemGlowState
     private static long _gen;
     private static bool _logged;
 
-    private static void Postfix(CombatState combatState)
+    private static void Postfix(CombatState combatState) => Feature.Run("lethal-gem-solve", () => true, () =>
     {
         State = combatState;
         try
@@ -106,7 +107,7 @@ internal static class LethalGemGlowState
             });
         }
         catch { IsLethal = false; }
-    }
+    });
 
     /// The card's real hit count. Cards with a dynamic count (e.g. Tear Asunder) store a
     /// "CalculatedHits" CalculatedVar and resolve it via Calculate(target) — the exact value the game
@@ -145,7 +146,7 @@ internal static class LethalGemGlowFeature
     private static bool _applied;   // did WE tint the orb (so we know to restore it)
 
     // Reads a cached bool only — NEVER runs the solver. Safe to run every frame.
-    private static void Postfix(NEnergyCounter __instance)
+    private static void Postfix(NEnergyCounter __instance) => Feature.Run("lethal-gem-render", () => true, () =>
     {
         try
         {
@@ -166,5 +167,5 @@ internal static class LethalGemGlowFeature
             }
         }
         catch { }
-    }
+    });
 }
