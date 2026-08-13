@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.Context;          // LocalContext
 using MegaCrit.Sts2.Core.Entities.Players; // Player
 using MegaCrit.Sts2.Core.Nodes.Combat;     // NEndTurnButton
 using MegaCrit.Sts2.Core.Rooms;            // RoomType
+using PokaYokeSpire.Core;
 
 namespace PokaYokeSpire.Guards;
 
@@ -25,13 +26,10 @@ public static class ElitePotionGuard
 {
     private static CombatState? _remindedForCombat;
 
-    private static void Postfix(NEndTurnButton __instance)
+    private static void Postfix(NEndTurnButton __instance) => Feature.Run("guard-elite-potion", () => Config.GuardElitePotion, () =>
     {
-        // FAIL-OPEN: a postfix, so on any error we simply skip the reminder — never disturb
-        // the turn-start the button just animated in.
         try
         {
-            if (!Config.GuardElitePotion) return;
 
             // _combatState is private on the button; read it the way guard 1 does.
             CombatState? state = Traverse.Create(__instance).Field("_combatState").GetValue<CombatState>();
@@ -54,5 +52,5 @@ public static class ElitePotionGuard
             PopupHelper.ShowNotice(title: "Potions", body: GuardLogic.PotionBody(allSlotsFull)); // reminder only — single OK
         }
         catch (System.Exception e) { MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] guard2 error (skipping): {e.Message}"); }
-    }
+    });
 }

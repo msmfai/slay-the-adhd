@@ -49,4 +49,27 @@ public static class Feature
     /// A UI/overlay feature: additionally fail-closed on the master kill switch (invariant 3).
     public static void RunUi(string feature, Func<bool> gate, Action body)
         => Run(feature, () => !Config.DisableAllOverlays && gate(), body);
+
+    /// For a Harmony PREFIX that may block the original (a confirm-then-proceed guard). Returns the
+    /// body's decision, but on gate-off / auto-disabled / ANY exception returns <paramref name="passThrough"/>
+    /// (default true = let the original method run) — so a guard can never trap or crash a core action
+    /// like ending a turn (invariant 8).
+    public static bool Prefix(string feature, Func<bool> gate, Func<bool> body, bool passThrough = true)
+    {
+        try
+        {
+            if (_disabled.Contains(feature)) return passThrough;
+            bool ok; try { ok = gate(); } catch { ok = false; }
+            if (!ok) return passThrough;
+            return body();
+        }
+        catch (Exception e)
+        {
+            int n = _failCount.TryGetValue(feature, out var c) ? c + 1 : 1;
+            _failCount[feature] = n;
+            try { Log.Info($"[Poka-Yoke] {feature} error ({n}/{DisableAfter}, failing open): {(e.InnerException ?? e).Message}"); } catch { }
+            if (n >= DisableAfter) _disabled.Add(feature);
+            return passThrough;   // never trap the game
+        }
+    }
 }

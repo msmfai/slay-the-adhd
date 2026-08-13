@@ -4,6 +4,7 @@ using MegaCrit.Sts2.Core.Combat;           // CombatState
 using MegaCrit.Sts2.Core.Context;          // LocalContext
 using MegaCrit.Sts2.Core.Entities.Players; // Player, PlayerCombatState
 using MegaCrit.Sts2.Core.Nodes.Combat;     // NEndTurnButton
+using PokaYokeSpire.Core;
 
 namespace PokaYokeSpire.Guards;
 
@@ -24,12 +25,8 @@ public static class EndTurnEnergyGuard
     private static readonly MethodInfo _onRelease = AccessTools.Method(typeof(NEndTurnButton), "OnRelease");
 
     private static bool Prefix(NEndTurnButton __instance)
-    {
-        // FAIL-OPEN: any exception (e.g. another mod changed the state we read) must let the
-        // end turn proceed normally — never crash or trap the button.
-        try
+        => Feature.Prefix("guard-end-turn-energy", () => Config.GuardEndTurnEnergy, () =>
         {
-            if (!Config.GuardEndTurnEnergy) return true;
             if (_bypass) { _bypass = false; return true; }
 
             CombatState? state = Traverse.Create(__instance).Field("_combatState").GetValue<CombatState>();
@@ -50,11 +47,5 @@ public static class EndTurnEnergyGuard
                 return false; // block the end-turn until confirmed
             }
             return true;
-        }
-        catch (System.Exception e)
-        {
-            MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] guard1 error (failing open): {e.Message}");
-            return true;
-        }
-    }
+        });   // Feature.Prefix passes through (lets the turn end) on gate-off / disabled / any error
 }
