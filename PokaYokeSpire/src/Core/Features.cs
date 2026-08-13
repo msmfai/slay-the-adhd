@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Log = MegaCrit.Sts2.Core.Logging.Log;
 
 namespace PokaYokeSpire.Core;
 
@@ -19,6 +18,7 @@ public static class Feature
     private const int DisableAfter = 5;
     private static readonly Dictionary<string, int> _failCount = new();
     private static readonly HashSet<string> _disabled = new();
+    private static readonly HashSet<string> _activated = new();
 
     /// True once a feature has auto-disabled itself (exposed for meta-tests / diagnostics).
     public static bool IsDisabled(string feature) => _disabled.Contains(feature);
@@ -32,17 +32,21 @@ public static class Feature
             try { ok = gate(); } catch { ok = false; }   // a throwing gate = do nothing (fail-closed)
             if (!ok) return;
             body();
+            if (_activated.Add(feature)) DebugLog.Info($"feature '{feature}' active");
         }
-        catch (Exception e)
+        catch (Exception e) { Fail(feature, e); }
+    }
+
+    /// Records a failure, logs it (with stack trace) to the debug log, and auto-disables after too many.
+    private static void Fail(string feature, Exception e)
+    {
+        int n = _failCount.TryGetValue(feature, out var c) ? c + 1 : 1;
+        _failCount[feature] = n;
+        DebugLog.Error($"feature '{feature}' (failure {n}/{DisableAfter})", e);
+        if (n >= DisableAfter)
         {
-            int n = _failCount.TryGetValue(feature, out var c) ? c + 1 : 1;
-            _failCount[feature] = n;
-            try { Log.Info($"[Poka-Yoke] {feature} error ({n}/{DisableAfter}): {(e.InnerException ?? e).Message}"); } catch { }
-            if (n >= DisableAfter)
-            {
-                _disabled.Add(feature);
-                try { Log.Info($"[Poka-Yoke] {feature} AUTO-DISABLED after {n} failures — vanilla behaviour restored for it"); } catch { }
-            }
+            _disabled.Add(feature);
+            DebugLog.Warn($"feature '{feature}' AUTO-DISABLED after {n} failures — vanilla behaviour restored for it");
         }
     }
 
@@ -65,10 +69,7 @@ public static class Feature
         }
         catch (Exception e)
         {
-            int n = _failCount.TryGetValue(feature, out var c) ? c + 1 : 1;
-            _failCount[feature] = n;
-            try { Log.Info($"[Poka-Yoke] {feature} error ({n}/{DisableAfter}, failing open): {(e.InnerException ?? e).Message}"); } catch { }
-            if (n >= DisableAfter) _disabled.Add(feature);
+            Fail(feature, e);
             return passThrough;   // never trap the game
         }
     }

@@ -32,9 +32,10 @@ public static class Overlay
             node.MouseFilter = Control.MouseFilterEnum.Ignore;
             parent.AddChild(node);
             UiSafety.Passthrough(node);   // input-safe by construction, incl. cloned game subtrees
+            DebugLog.Debug($"Overlay.Attach('{name}') under {parent.GetType().Name}");
             return node;
         }
-        catch { return null; }
+        catch (Exception e) { DebugLog.Error($"Overlay.Attach('{name}')", e); return null; }
     }
 
     /// Re-apply the mouse-transparency invariant after a feature has mutated an overlay's children

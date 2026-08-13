@@ -15,6 +15,11 @@ public class Config : SimpleModConfig
     /// Use it if anything ever looks wrong or stops responding. Guards still function.
     public static bool DisableAllOverlays { get; set; } = false;
 
+    /// DEBUG LOGGING — write a detailed, leveled log (errors, warnings, feature activity) to
+    /// "pokayoke-debug.log" next to the mod, so problems from a normal playthrough are easy to read
+    /// afterwards. Off by default (no overhead). Turn on, play, then share the log.
+    public static bool DebugLogging { get; set; } = false;
+
     [ConfigSection("guards")]
     /// Confirm when ending turn with unspent energy AND a playable card in hand.
     public static bool GuardEndTurnEnergy { get; set; } = true;

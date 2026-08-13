@@ -45,14 +45,15 @@ public static class CardDisplay
                         row.AddChild(h);              // deferred build -> NCard._Ready → Reload renders it
                         holders.Add(h);
                     }
-                    if (holders.Count == 0) { row.QueueFree(); return; }
+                    if (holders.Count == 0) { row.QueueFree(); DebugLog.Warn($"CardDisplay('{rowName}'): no cards rendered"); return; }
 
-                    try { onBuilt(row, holders); } catch { }
+                    try { onBuilt(row, holders); } catch (Exception e) { DebugLog.Error($"CardDisplay('{rowName}') layout", e); }
                     UiSafety.Passthrough(row);        // display-only: can never eat a pick
+                    DebugLog.Debug($"CardDisplay('{rowName}'): {holders.Count} cards");
                 }
-                catch { }
+                catch (Exception e) { DebugLog.Error($"CardDisplay('{rowName}') build", e); }
             }).CallDeferred();
         }
-        catch { }
+        catch (Exception e) { DebugLog.Error($"CardDisplay('{rowName}') schedule", e); }
     }
 }
