@@ -68,12 +68,18 @@ public partial class TuningPanel : CanvasLayer
         vb.AddChild(scroll);
         foreach (var k in Tunables.Knobs) knobs.AddChild(BuildKnobRow(k));
 
-        // ── footer: save + status ──
+        // ── footer: save / randomize / reset + status ──
         vb.AddChild(new HSeparator());
         var footer = new HBoxContainer();
         var save = new Button { Text = "Save to source" };
         save.Pressed += OnSave;
         footer.AddChild(save);
+        var rand = new Button { Text = "Randomize" };
+        rand.Pressed += OnRandomize;
+        footer.AddChild(rand);
+        var reset = new Button { Text = "Reset" };
+        reset.Pressed += OnReset;
+        footer.AddChild(reset);
         _status = new Label { Text = "", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         footer.AddChild(_status);
         vb.AddChild(footer);
@@ -110,6 +116,31 @@ public partial class TuningPanel : CanvasLayer
     {
         bool ok = Tunables.WriteTo(Tunables.DiskPath());
         _status.Text = ok ? "saved to source ✓" : "save failed (see log)";
+    }
+
+    /// Scramble every knob to a random value in its range — a quick visual check that each knob is
+    /// actually wired to something. Does NOT save; use Reset to undo back to the saved source.
+    private void OnRandomize()
+    {
+        foreach (var k in Tunables.Knobs)
+        {
+            float t = (float)GD.RandRange(0.0, 1.0);
+            float v = k.Min + t * (k.Max - k.Min);
+            if (k.Step > 0f) v = k.Min + Mathf.Round((v - k.Min) / k.Step) * k.Step;   // snap to step
+            k.Set(v);
+        }
+        RefreshValues();
+        LiveTuning.RaiseReloaded();
+        _status.Text = "randomized (Reset to undo)";
+    }
+
+    /// Undo: restore every value to the saved source (tunables.json / baked-in).
+    private void OnReset()
+    {
+        Tunables.ResetToSaved();
+        RefreshValues();
+        LiveTuning.RaiseReloaded();
+        _status.Text = "reset to saved ✓";
     }
 
     private void OnTitleInput(InputEvent e)
