@@ -59,8 +59,9 @@ internal static class TurnSimDriverFeature
             catch (System.Exception e) { DebugLog.Error("TurnSim.Solve", e); return; }
             if (Interlocked.Read(ref _gen) != g) return;   // a newer snapshot superseded us
             _latest = new Out { Result = r, EnemyRefs = sim.EnemyRefs, Scheduled = sched, DoNothingIncoming = doNothing, Gen = g, HasSim = true };
+            if (r.Truncated) DebugLog.Warn($"turnsim hit the node budget ({r.Nodes}) — result is a conservative bound (cards={sim.Hand.Count}, enemies={sim.Enemies.Length})");
             if (DebugLog.Enabled)
-                DebugLog.Debug($"turnsim solved: maxDmg={r.MaxDamage} perEnemy=[{string.Join(",", r.MaxPerEnemy)}] minHp={r.MinHpLost} killAll={r.CanKillAll} (cards={sim.Hand.Count})");
+                DebugLog.Debug($"turnsim solved: maxDmg={r.MaxDamage} perEnemy=[{string.Join(",", r.MaxPerEnemy)}] minHp={r.MinHpLost} killAll={r.CanKillAll} nodes={r.Nodes} in {sim.Hand.Count} cards");
         });
     }
 }

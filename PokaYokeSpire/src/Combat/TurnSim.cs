@@ -65,6 +65,8 @@ public static class TurnSim
         public int[] MaxPerEnemy;
         public int MinHpLost;
         public bool CanKillAll;   // is there ONE play sequence that leaves every enemy dead this turn?
+        public int Nodes;         // states expanded (for diagnostics); == cap ⇒ truncated (conservative)
+        public bool Truncated;    // true if the node budget was hit before the search finished
     }
 
     // ── damage / block math (STS pipeline: (base + Σadditive) × Πmultiplicative, floored ONCE) ──
@@ -111,6 +113,8 @@ public static class TurnSim
         int nodes = 0;
         ulong fullMask = hand.Count >= 64 ? ulong.MaxValue : (1UL << hand.Count) - 1;
         Recurse(player, enemies, hand, fullMask, initialHp, ref best, visited, ref nodes, nodeCap);
+        best.Nodes = nodes;
+        best.Truncated = nodes >= nodeCap;
         return best;
     }
 
