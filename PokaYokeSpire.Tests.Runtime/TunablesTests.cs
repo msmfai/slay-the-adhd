@@ -1,3 +1,4 @@
+using System.Linq;
 using Xunit;
 using PokaYokeSpire.Core;
 
@@ -63,5 +64,47 @@ public class TunablesTests
     {
         var ex = Record.Exception(() => Tunables.Load("{}"));
         Assert.Null(ex);
+    }
+
+    [Fact]
+    public void ToJson_RoundTrips_ThroughLoad()
+    {
+        Tunables.Load(Full);
+        string json = Tunables.ToJson();
+        Tunables.Load("{ \"gem\": { \"gap\": 1.0 } }");   // perturb
+        Tunables.Load(json);                              // restore from serialized form
+        Assert.Equal(99f, Tunables.GemGap, 3);
+        Assert.Equal(0.4f, Tunables.GemScale, 3);
+        Assert.Equal("IN", Tunables.IncomingTip);          // tooltips survive a save/load
+        Assert.Equal(0.1f, Tunables.GemBlueTint.R, 3);
+    }
+
+    [Fact]
+    public void WriteTo_ThenLoad_PreservesValues()
+    {
+        Tunables.Load(Full);
+        string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "poka-tunables-test.json");
+        Assert.True(Tunables.WriteTo(path));
+
+        Tunables.Load("{ \"gem\": { \"gap\": 7.0 } }");    // change in memory
+        Tunables.Load(System.IO.File.ReadAllText(path));   // reload the saved file
+        Assert.Equal(99f, Tunables.GemGap, 3);
+        System.IO.File.Delete(path);
+    }
+
+    [Fact]
+    public void Knobs_CoverKeyPaths_AndSetBumpsRevision()
+    {
+        var paths = Tunables.Knobs.Select(k => k.Path).ToHashSet();
+        foreach (var expected in new[] { "gem.fontFrac", "gem.gap", "gem.scale",
+                                         "gem.blueTint.r", "gem.redTint.b", "hud.handRaiseFrac" })
+            Assert.Contains(expected, paths);
+
+        var gap = Tunables.Knobs.First(k => k.Path == "gem.gap");
+        int rev = Tunables.Revision;
+        gap.Set(33f);
+        Assert.Equal(33f, gap.Get(), 3);
+        Assert.Equal(33f, Tunables.GemGap, 3);
+        Assert.True(Tunables.Revision > rev, "a knob edit must bump Revision so features rebuild");
     }
 }

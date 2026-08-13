@@ -27,10 +27,12 @@ public static class LiveTuning
             if (anyNodeInTree == null || !GodotObject.IsInstanceValid(anyNodeInTree)) return;
             var root = anyNodeInTree.GetTree()?.Root;
             if (root == null) return;
-            if (root.GetNodeOrNull("PokaYokeLiveTuner") != null) { _ensured = true; return; }
-            root.AddChild(new LiveTuner { Name = "PokaYokeLiveTuner" });
+            if (root.GetNodeOrNull("PokaYokeLiveTuner") == null)
+                root.AddChild(new LiveTuner { Name = "PokaYokeLiveTuner" });
+            if (root.GetNodeOrNull("PokaYokeTuningPanel") == null)
+                root.AddChild(new TuningPanel { Name = "PokaYokeTuningPanel" });   // F9 opens the sliders
             _ensured = true;
-            DebugLog.Info($"LiveTuner attached — watching {Tunables.DiskPath()}");
+            DebugLog.Info($"LiveTuner + tuning panel (F9) attached — watching {Tunables.DiskPath()}");
         }
         catch (Exception e) { DebugLog.Error("LiveTuning.Ensure", e); }
     }
