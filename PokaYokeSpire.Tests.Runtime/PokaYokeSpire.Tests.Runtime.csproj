@@ -27,6 +27,7 @@
     <Compile Include="../PokaYokeSpire/src/Core/DebugLog.cs" />
     <Compile Include="../PokaYokeSpire/src/Layout.cs" />
     <Compile Include="../PokaYokeSpire/src/Spatial/Spatial.cs" />
+    <Compile Include="../PokaYokeSpire/src/Spatial/GemLayout.cs" />
     <Compile Include="../PokaYokeSpire/src/Spatial/DeckRowLayout.cs" />
     <Compile Include="../PokaYokeSpire/src/Spatial/CombatHudLayout.cs" />
     <Compile Include="../PokaYokeSpire/src/Spatial/EnemyFormation.cs" />

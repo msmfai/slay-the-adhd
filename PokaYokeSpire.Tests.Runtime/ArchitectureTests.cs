@@ -93,4 +93,33 @@ public class ArchitectureTests
         Assert.True(File.Exists(Path.Combine(src, "Core", "CardDisplay.cs")), "Core/CardDisplay.cs missing");
         Assert.True(File.Exists(Path.Combine(src, "UiSafety.cs")), "UiSafety.cs missing");
     }
+
+    [Fact]
+    public void CardDisplay_DefersCardCreation()
+    {
+        // The broken-card bug: adding an NCard during a screen's own _Ready renders "broken card". The
+        // fix is CardDisplay building on a DEFERRED call. Pin the mechanism so it can't be removed.
+        var text = File.ReadAllText(Path.Combine(SrcDir(), "Core", "CardDisplay.cs"));
+        Assert.Contains("CallDeferred", text);
+    }
+
+    [Fact]
+    public void UiAbstractions_ApplyInputSafety()
+    {
+        // The end-turn-button-eating-clicks regression: a mod overlay swallowed a click. Overlay and
+        // CardDisplay both make their subtree mouse-transparent — pin that they call UiSafety.Passthrough.
+        var src = SrcDir();
+        Assert.Contains("UiSafety.Passthrough", File.ReadAllText(Path.Combine(src, "Core", "Overlay.cs")));
+        Assert.Contains("UiSafety.Passthrough", File.ReadAllText(Path.Combine(src, "Core", "CardDisplay.cs")));
+    }
+
+    [Fact]
+    public void CoreCatchBlocks_SurfaceErrors_ViaDebugLog()
+    {
+        // Silent catch blocks in the UI abstractions hid failures (e.g. a gem's art silently dropped).
+        // Every Core UI helper must reference DebugLog so a swallowed error is at least recorded.
+        var src = SrcDir();
+        foreach (var f in new[] { "Core/Overlay.cs", "Core/CardDisplay.cs", "Core/Features.cs" })
+            Assert.Contains("DebugLog", File.ReadAllText(Path.Combine(src, f.Replace('/', Path.DirectorySeparatorChar))));
+    }
 }

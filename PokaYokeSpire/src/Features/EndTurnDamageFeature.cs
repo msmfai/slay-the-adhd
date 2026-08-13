@@ -202,8 +202,6 @@ internal static class EndTurnDamageFeature
     /// on Duplicate(). Copying the pieces gets the same look with none of that. Guarded + input-safe.
     private static Orb BuildOrb(NEnergyCounter counter, string name, bool isLeft, Color tint)
     {
-        const float scale = 2f / 3f;
-        const float gap = 14f;
         float ch = counter.Size.Y > 1f ? counter.Size.Y : _orbNatural;
 
         // The gem must carry the counter's SIZE: the orb art (Layers/RotationLayers) is anchored
@@ -245,14 +243,12 @@ internal static class EndTurnDamageFeature
             setText = txt => { try { lbl.Text = txt; } catch { } };
         }
 
-        // The counter draws its orb centred on its PIVOT (measured: size 128, pivot (64,64) — the art
-        // fills [0,size], so its centre is size/2). Scale the gem about that same centre and offset it
-        // horizontally so the gem's orb-centre sits beside the counter's orb-centre at the SAME height.
-        //   art-centre maps to  Position + PivotOffset  ⇒  Position.x = ±(counterHalf + gap + gemHalf).
-        Vector2 centre = counter.Size * 0.5f;
-        gem.PivotOffset = centre;
-        gem.Scale = new Vector2(scale, scale);
-        float offX = centre.X + gap + centre.X * scale;   // counterHalf + gap + scaled gemHalf
+        // Placement is the pure, lint-tested Spatial.GemLayout math (NOT eyeballed): scale/offset about
+        // the orb centre (size/2) so each gem flanks the counter at the same height without occluding it.
+        var plan = Spatial.GemLayout.For(counter.Size.X);
+        gem.PivotOffset = counter.Size * 0.5f;
+        gem.Scale = new Vector2(plan.Scale, plan.Scale);
+        float offX = plan.OffX;
         gem.Position = new Vector2(isLeft ? -offX : offX, 0f);
 
         if (Core.DebugLog.Enabled)
