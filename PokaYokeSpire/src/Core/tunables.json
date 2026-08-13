@@ -1,0 +1,18 @@
+{
+  "_comment": "Single source of truth for the mod's tunable layout/appearance values. Embedded into the DLL at build (compile-time authoritative, baked into release with no disk IO). With Config.LiveTuning ON (debug), the running game watches THIS file and hot-applies edits — no recompile, no relaunch.",
+
+  "gem": {
+    "fontFrac": 0.20,
+    "gap": 14.0,
+    "scale": 0.6667,
+    "blueTint": [0.18, 0.42, 1.8],
+    "redTint": [1.9, 0.5, 0.28],
+    "incomingTip": "Incoming damage\nx / y  —  the HP you'll actually lose this turn if you end now (after block)\nover the raw damage the enemies are outputting.",
+    "offenseTip": "Your damage\nx / y  —  the most HP you can deal this turn over that plus damage that lands before\nyour next play (poison, start-of-turn effects, …). Hover an enemy to scope both numbers to it."
+  },
+
+  "hud": {
+    "handRaiseFrac": 0.5,
+    "counterRaiseFracOfHand": 0.3333
+  }
+}

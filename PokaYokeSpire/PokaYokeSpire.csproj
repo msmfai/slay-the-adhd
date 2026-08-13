@@ -42,4 +42,10 @@
     </Reference>
     <!-- GodotSharp is provided by the Godot.NET.Sdk; do not copy it locally. -->
   </ItemGroup>
+
+  <!-- tunables.json is the authoritative source of the mod's tunable values; embed it so the compiled
+       DLL carries the exact values baked at build time (release reads them once, no disk IO). -->
+  <ItemGroup>
+    <EmbeddedResource Include="src/Core/tunables.json" LogicalName="tunables.json" />
+  </ItemGroup>
 </Project>

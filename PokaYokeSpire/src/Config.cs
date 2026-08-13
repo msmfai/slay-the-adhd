@@ -21,6 +21,11 @@ public class Config : SimpleModConfig
     /// (The current debugging session has it enabled via the persisted PokaYokeSpire.cfg.)
     public static bool DebugLogging { get; set; } = false;
 
+    /// LIVE TUNING (debug) — watch tunables.json while the game runs and hot-apply edits to the mod's
+    /// layout/appearance (gem font/gap/scale/tints/tooltips, HUD raise) with NO recompile or relaunch.
+    /// Off by default: release uses the values baked into the DLL at build. Turn on to tune live.
+    public static bool LiveTuning { get; set; } = false;
+
     [ConfigSection("guards")]
     /// Confirm when ending turn with unspent energy AND a playable card in hand.
     public static bool GuardEndTurnEnergy { get; set; } = true;
