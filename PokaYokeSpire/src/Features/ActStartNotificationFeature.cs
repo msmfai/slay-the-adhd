@@ -4,6 +4,7 @@ using MegaCrit.Sts2.Core.Localization;   // LocString
 using MegaCrit.Sts2.Core.Models;         // ActModel
 using MegaCrit.Sts2.Core.Nodes;          // NActBanner
 using MegaCrit.Sts2.Core.Runs;           // RunManager, RunState
+using PokaYokeSpire.Core;
 
 namespace PokaYokeSpire.Features;
 
@@ -21,11 +22,10 @@ internal static class ActStartNotificationFeature
 {
     private static ActModel? _shownFor;
 
-    private static void Postfix()
+    private static void Postfix() => Feature.Run("act-start-notification", () => Config.ShowActStartNotification, () =>
     {
         try
         {
-            if (!Config.ShowActStartNotification) return;
 
             var t = Traverse.Create(RunManager.Instance);
             var state = t.Property("State").GetValue<RunState>() ?? t.Field("State").GetValue<RunState>();
@@ -40,7 +40,7 @@ internal static class ActStartNotificationFeature
             PopupHelper.ShowNotice(title: actName, body: $"Boss ahead: {bossName}");
         }
         catch (Exception e) { MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] act-start error: {e.Message}"); }
-    }
+    });
 
     private static string Safe(Func<string?> f, string fallback)
     {
