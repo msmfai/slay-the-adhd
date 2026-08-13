@@ -71,14 +71,13 @@ internal static class EndTurnDamageFeature
 
             var snap = CombatSnapshot.Build(combatState);
 
-            // LEFT — incoming. x = HP you take if you play no more block (after current block + end-of-turn
-            // relics/plating). y = the MINIMUM you can take by playing your hand's block optimally
-            // (Dex/Frail-adjusted, on top of those same end-of-turn gains) — mirrors the offense gem.
+            // LEFT (defense) — a single number: the MINIMUM HP you can take this turn, after current block
+            // + everything that triggers at end-turn before enemies attack (Plating/Metallicize/Orichalcum/
+            // relics) + playing your hand's block optimally (Dex/Frail-adjusted).
             var p = IncomingDamage.Compute(combatState);
-            int take = p.Valid ? p.NetHpLoss : 0;
             int handBlock = snap != null ? DefenseCalc.MaxBlock(snap.BlockCards, snap.Energy, snap.Dexterity, snap.PlayerFrail) : 0;
             int minTake = p.Valid ? DefenseCalc.MinDamageTaken(p.Incoming, p.BlockAtEnemyTurn, handBlock) : 0;
-            _leftText = $"{take} / {minTake}";
+            _leftText = minTake.ToString();
 
             // RIGHT — offense totals + per-enemy cache
             if (snap != null)
@@ -97,6 +96,7 @@ internal static class EndTurnDamageFeature
 
             WireHover();
             _rightText = RightText();
+            RecomputeGlow();
             UpdateOrbs();
             _left.Gem.Visible = _right.Gem.Visible = true;
 
@@ -105,20 +105,35 @@ internal static class EndTurnDamageFeature
         }
     }
 
-    /// The right orb's text: hovered enemy's numbers if one is hovered, else the global totals.
+    // read by the lethal-gem-glow render feature
+    internal static Creature? HoveredEnemy => _hoveredEnemy;
+    internal static bool HoveredEnemyLethal;
+
+    /// The offense orb's text — a SINGLE number: the max damage you can do this turn (cards + scheduled).
+    /// Scoped to the hovered enemy if one is hovered, else the total across all enemies.
     private static string RightText()
     {
-        int x = _xTotal, y = _yTotal;
+        if (_hoveredEnemy != null)
+            for (int i = 0; i < _enemyRefs.Count && i < _xPerEnemy.Length && i < _schedPerEnemy.Length; i++)
+                if (ReferenceEquals(_enemyRefs[i], _hoveredEnemy))
+                    return (_xPerEnemy[i] + _schedPerEnemy[i]).ToString();
+        return _yTotal.ToString();
+    }
+
+    /// Green-glow decision: when hovering an enemy, glow if your damage to it (cards + scheduled) can
+    /// kill it. (No hover falls back to the kill-all glow in the render feature.)
+    private static void RecomputeGlow()
+    {
+        bool glow = false;
         if (_hoveredEnemy != null)
             for (int i = 0; i < _enemyRefs.Count && i < _xPerEnemy.Length && i < _schedPerEnemy.Length; i++)
                 if (ReferenceEquals(_enemyRefs[i], _hoveredEnemy))
                 {
                     int hp = TryHp(_enemyRefs[i]);
-                    x = _xPerEnemy[i];
-                    y = hp > 0 ? System.Math.Min(hp, x + _schedPerEnemy[i]) : x + _schedPerEnemy[i];
+                    glow = hp > 0 && (_xPerEnemy[i] + _schedPerEnemy[i]) >= hp;
                     break;
                 }
-        return $"{x} / {y}";
+        HoveredEnemyLethal = glow;
     }
 
     /// Update both gems' text (fixed size; the MegaLabel auto-sizes its font exactly like the real
@@ -317,22 +332,25 @@ internal static class EndTurnDamageFeature
         catch { }
     }
 
-    private static void OnCreatureHovered(NCreature c)
-    {
-        try { _hoveredEnemy = c?.Entity; if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) { _rightText = RightText(); UpdateOrbs(); } } catch { }
-    }
+    private static void OnCreatureHovered(NCreature c) => SetHover(c?.Entity);
 
     /// Hover entry point that works with NO card selected (wired to each enemy's hitbox by EnemyHud),
     /// so hovering an enemy scopes the offense orb to it even outside card-targeting mode.
-    internal static void OnEnemyHover(Creature? e)
+    internal static void OnEnemyHover(Creature? e) => SetHover(e);
+
+    private static void SetHover(Creature? e)
     {
-        try { _hoveredEnemy = e; if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) { _rightText = RightText(); UpdateOrbs(); } } catch { }
+        try
+        {
+            _hoveredEnemy = e;
+            _rightText = RightText();
+            RecomputeGlow();
+            if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) UpdateOrbs();
+        }
+        catch { }
     }
 
-    private static void OnCreatureUnhovered(NCreature c)
-    {
-        try { _hoveredEnemy = null; if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) { _rightText = RightText(); UpdateOrbs(); } } catch { }
-    }
+    private static void OnCreatureUnhovered(NCreature c) => SetHover(null);
 }
 
 /// Spins a cloned _rotationLayers exactly like NEnergyCounter._Process (each child faster than the
