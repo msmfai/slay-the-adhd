@@ -69,14 +69,18 @@ internal static class EndTurnDamageFeature
             { BuildOrbs(counter); _gemFor = counter; }
             if (_left == null || _right == null) return;
 
-            // LEFT — incoming
+            var snap = CombatSnapshot.Build(combatState);
+
+            // LEFT — incoming. x = HP you take if you play no more block (after current block + end-of-turn
+            // relics/plating). y = the MINIMUM you can take by playing your hand's block optimally
+            // (Dex/Frail-adjusted, on top of those same end-of-turn gains) — mirrors the offense gem.
             var p = IncomingDamage.Compute(combatState);
             int take = p.Valid ? p.NetHpLoss : 0;
-            int output = p.Valid ? p.Incoming : 0;
-            _leftText = $"{take} / {output}";
+            int handBlock = snap != null ? DefenseCalc.MaxBlock(snap.BlockCards, snap.Energy, snap.Dexterity, snap.PlayerFrail) : 0;
+            int minTake = p.Valid ? DefenseCalc.MinDamageTaken(p.Incoming, p.BlockAtEnemyTurn, handBlock) : 0;
+            _leftText = $"{take} / {minTake}";
 
             // RIGHT — offense totals + per-enemy cache
-            var snap = CombatSnapshot.Build(combatState);
             if (snap != null)
             {
                 var dmg = LethalSolver.MaxDamage(snap.Cards, snap.Energy, snap.StartStrength, snap.Enemies, snap.PlayerWeak);

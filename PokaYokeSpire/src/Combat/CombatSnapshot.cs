@@ -21,11 +21,14 @@ public static class CombatSnapshot
     public sealed class Result
     {
         public List<LethalSolver.SimCard> Cards = new();
+        public List<DefenseCalc.BlockCard> BlockCards = new();  // block-granting hand cards (for the defense gem)
         public List<LethalSolver.SimEnemy> Enemies = new();
         public List<Creature> EnemyRefs = new();   // aligned index-for-index with Enemies
         public int Energy;
         public int StartStrength;
+        public int Dexterity;      // player Dexterity (raises block gained)
         public bool PlayerWeak;
+        public bool PlayerFrail;   // Frail: 25% less block gained
     }
 
     public static Result? Build(CombatState combatState)
@@ -50,18 +53,22 @@ public static class CombatSnapshot
 
         Creature? meC = LocalContext.GetMe((IEnumerable<Creature>)combatState.Creatures);
         r.StartStrength = meC == null ? 0 : PowerAmount(meC, "StrengthPower");
+        r.Dexterity = meC == null ? 0 : PowerAmount(meC, "DexterityPower");
         r.PlayerWeak = meC != null && HasPower(meC, "WeakPower");
+        r.PlayerFrail = meC != null && HasPower(meC, "FrailPower");
 
         foreach (var c in pcs.Hand.Cards)
         {
             try
             {
                 if (c.EnergyCost.CostsX) continue;                 // X-cost: energy-dependent
-                int baseDmg = 0, strGain = 0; bool appliesVuln = false;
+                int cost = c.EnergyCost.GetWithModifiers(CostModifiers.All);
+                int baseDmg = 0, strGain = 0, baseBlock = 0; bool appliesVuln = false;
                 foreach (var v in c.DynamicVars.Values)
                 {
                     var t = v.GetType();
                     if (t.Name == "DamageVar") baseDmg = (int)v.BaseValue;
+                    else if (t.Name == "BlockVar") baseBlock = (int)v.BaseValue;
                     else if (t.IsGenericType && t.Name.StartsWith("PowerVar"))
                     {
                         string pt = t.GetGenericArguments()[0].Name;
@@ -69,12 +76,13 @@ public static class CombatSnapshot
                         else if (pt == "VulnerablePower") appliesVuln = true;
                     }
                 }
+                if (baseBlock > 0) r.BlockCards.Add(new DefenseCalc.BlockCard(cost, baseBlock));   // defense gem
+
                 bool aoe = c.TargetType == TargetType.AllEnemies;
                 bool attack = baseDmg > 0;
                 if (attack && !aoe && c.TargetType != TargetType.AnyEnemy) continue;   // unaimable attack
-                if (!attack && strGain == 0 && !appliesVuln) continue;                 // no modeled effect
+                if (!attack && strGain == 0 && !appliesVuln) continue;                 // no modeled OFFENSE
                 int hits = attack ? ReadHits(c, repTarget) : 1;
-                int cost = c.EnergyCost.GetWithModifiers(CostModifiers.All);
                 r.Cards.Add(new LethalSolver.SimCard(cost, baseDmg, hits, aoe, strGain, appliesVuln));
             }
             catch { /* unmodelable card -> excluded (the no-new-information boundary) */ }
