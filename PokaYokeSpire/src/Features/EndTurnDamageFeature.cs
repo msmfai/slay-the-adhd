@@ -78,7 +78,7 @@ internal static class EndTurnDamageFeature
             int take = p.Valid ? p.NetHpLoss : 0;
             int handBlock = snap != null ? DefenseCalc.MaxBlock(snap.BlockCards, snap.Energy, snap.Dexterity, snap.PlayerFrail) : 0;
             int minTake = p.Valid ? DefenseCalc.MinDamageTaken(p.Incoming, p.BlockAtEnemyTurn, handBlock) : 0;
-            _leftText = $"{take} / {minTake}";
+            _leftText = $"{take} → {minTake}";
 
             // RIGHT — offense totals + per-enemy cache
             if (snap != null)
@@ -110,21 +110,22 @@ internal static class EndTurnDamageFeature
     internal static Creature? HoveredEnemy => _hoveredEnemy;
     internal static bool HoveredEnemyLethal;
 
-    /// The offense orb's text — x / y : x = max damage you can do BEFORE enemies act (cards this turn),
-    /// y = max BEFORE your next turn (that + scheduled damage like poison). Scoped to the hovered enemy
-    /// if one is hovered, else totals across all enemies.
+    /// The offense orb's text — "x + d" : x = max damage you can do BEFORE the enemies act (cards this
+    /// turn), d = the damage that lands on its own before your NEXT turn (current scheduled damage —
+    /// existing poison etc., NOT hypothetical extra you could set up). Scoped to the hovered enemy if one
+    /// is hovered, else totals across all enemies.
     private static string RightText()
     {
-        int x = _xTotal, y = _yTotal;
+        int x = _xTotal, sched = _yTotal - _xTotal;
         if (_hoveredEnemy != null)
             for (int i = 0; i < _enemyRefs.Count && i < _xPerEnemy.Length && i < _schedPerEnemy.Length; i++)
                 if (ReferenceEquals(_enemyRefs[i], _hoveredEnemy))
                 {
                     x = _xPerEnemy[i];
-                    y = x + _schedPerEnemy[i];
+                    sched = _schedPerEnemy[i];
                     break;
                 }
-        return $"{x} / {y}";
+        return $"{x} + {sched}";
     }
 
     /// Green-glow decision: when hovering an enemy, glow if your damage to it (cards + scheduled) can
