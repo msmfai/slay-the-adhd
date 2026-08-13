@@ -27,8 +27,23 @@ internal static class DeckStatsFeature
     private const string LeftName = "PokaYokeStatsLeft";
     private const string RightName = "PokaYokeStatsRight";
 
+    private static NCardRewardSelectionScreen? _screen;
+    private static bool _subscribed;
+
     private static void Postfix(NCardRewardSelectionScreen __instance) =>
-        Feature.RunUi("deck-stats", () => Config.ShowDeckStats, () => Build(__instance));
+        Feature.RunUi("deck-stats", () => Config.ShowDeckStats, () =>
+        {
+            _screen = __instance;
+            if (!_subscribed) { _subscribed = true; LiveTuning.Reloaded += OnReload; }
+            Build(__instance);
+        });
+
+    /// Live-tuning: sidePanel.marginFrac changed — re-run Build on the current screen (idempotent:
+    /// Overlay.Attach returns the existing panels and we just reposition them).
+    private static void OnReload()
+    {
+        try { if (_screen != null && GodotObject.IsInstanceValid(_screen)) Build(_screen); } catch { }
+    }
 
     private static void Build(NCardRewardSelectionScreen screen)
     {
