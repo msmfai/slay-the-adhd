@@ -25,6 +25,22 @@ internal static class EnergyCounterFeature
     private static float _lastHeight = float.NaN;
 
     private static bool _loggedActive;
+    private static bool _subscribedLive;
+
+    /// The hand only re-lays-out on demand (draw/play/hover), so a live tunable edit updates the stored
+    /// HandOffset but nothing re-applies it — the hand appears frozen. Force a layout refresh on reload.
+    private static void RefreshHandLayout()
+    {
+        try
+        {
+            var hand = NPlayerHand.Instance;
+            bool ok = hand != null && GodotObject.IsInstanceValid(hand);
+            if (ok) Traverse.Create(hand).Method("RefreshLayout").GetValue();
+            if (DebugLog.Enabled)
+                DebugLog.Debug($"hand refresh: handFound={ok} offset=({HudLowerState.HandOffsetX:0.#},{HudLowerState.HandOffsetY:0.#})");
+        }
+        catch (System.Exception e) { DebugLog.Error("RefreshHandLayout", e); }
+    }
 
     private static void Postfix(NEnergyCounter __instance)
         => Feature.Run("energy-counter", () => true, () => Body(__instance));
@@ -46,6 +62,7 @@ internal static class EnergyCounterFeature
             float textH = MeasureTextHeight(__instance);
             HudLowerState.HandOffsetY = (Config.RaiseCombatHud ? -CombatHudLower.HandRaise(textH, Tunables.HandRaiseFrac) : 0f) + Tunables.HudGroupOffsetY;
             HudLowerState.HandOffsetX = Tunables.HudGroupOffsetX;
+            if (!_subscribedLive) { _subscribedLive = true; LiveTuning.Reloaded += RefreshHandLayout; }
 
             // Overlays parented to the energy counter: keep them (re)built + positioned.
             RadialRelicsManager.UpdateAll(__instance);
