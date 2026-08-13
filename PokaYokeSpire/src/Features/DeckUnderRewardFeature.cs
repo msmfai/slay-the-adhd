@@ -27,13 +27,29 @@ internal static class DeckUnderRewardFeature
 {
     private const string RowName = "PokaYokeDeckRow";
 
+    // cached so a live tunable edit can re-lay-out the CURRENT reward screen without rebuilding cards
+    private static NCardRewardSelectionScreen? _screen;
+    private static List<NGridCardHolder>? _made;
+    private static Vector2? _altsOrig, _cardRowOrig;   // original game-node positions (mutated additively)
+    private static bool _subscribed;
+
     private static void Postfix(NCardRewardSelectionScreen __instance) =>
         Feature.RunUi("deck-under-reward", () => Config.ShowDeckUnderReward, () =>
         {
+            if (!_subscribed) { _subscribed = true; LiveTuning.Reloaded += OnReload; }
             var deck = GetDeck();
             if (deck == null || deck.Count == 0) return;   // fail-closed: no deck -> nothing
-            CardDisplay.Attach(__instance, RowName, deck, (row, made) => Layout(__instance, made));
+            _altsOrig = null; _cardRowOrig = null;         // new screen → recapture the originals
+            CardDisplay.Attach(__instance, RowName, deck, (row, made) => { _screen = __instance; _made = made; Layout(__instance, made); });
         });
+
+    /// Live-tuning: reward.*/deckFan.* changed — re-run the layout on the current screen (idempotent, so
+    /// it doesn't compound the additive node offsets). No card rebuild.
+    private static void OnReload()
+    {
+        try { if (_screen != null && GodotObject.IsInstanceValid(_screen) && _made != null) Layout(_screen, _made); }
+        catch { }
+    }
 
     /// Places the (already-rendered) holders using the pure layout + runtime lint self-correction.
     private static void Layout(NCardRewardSelectionScreen screen, List<NGridCardHolder> made)
@@ -67,19 +83,29 @@ internal static class DeckUnderRewardFeature
             scale *= 0.85f;
         }
 
-        // drop the fan + skip buttons by half the skip font height so the owned cards don't clip the choices
+        // drop the fan + skip buttons by half the skip font height so the owned cards don't clip the
+        // choices. Positions are set ABSOLUTELY from captured originals so re-running (live tuning) never
+        // compounds the offset.
         float skipDrop = MeasureSkipFontHeight(screen) * 0.5f;
         var alts = screen.GetNodeOrNull<Control>("UI/RewardAlternatives");
-        if (alts != null && GodotObject.IsInstanceValid(alts)) alts.Position += new Vector2(0f, skipDrop);
+        if (alts != null && GodotObject.IsInstanceValid(alts))
+        {
+            _altsOrig ??= alts.Position;
+            alts.Position = _altsOrig.Value + new Vector2(0f, skipDrop);
+        }
 
         for (int i = 0; i < made.Count; i++)
         {
+            if (made[i] == null || !GodotObject.IsInstanceValid(made[i])) continue;
             made[i].Scale = new Vector2(scale, scale);
             made[i].Position = new Vector2(layout.DeckCards[i].X, layout.DeckCards[i].Y + skipDrop);
         }
 
         if (cardRow != null && GodotObject.IsInstanceValid(cardRow))
-            cardRow.Position -= new Vector2(0f, Tunables.RewardRaise);
+        {
+            _cardRowOrig ??= cardRow.Position;
+            cardRow.Position = _cardRowOrig.Value - new Vector2(0f, Tunables.RewardRaise);
+        }
     }
 
     private static float MeasureSkipFontHeight(Node screen)
