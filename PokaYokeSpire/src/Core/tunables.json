@@ -13,8 +13,8 @@
       2,
       0
     ],
-    "incomingTip": "Incoming damage\nThe minimum HP you can take this turn — after current block, end-of-turn relics/plating, and playing your hand's block optimally.",
-    "offenseTip": "Your damage\nThe most HP you can deal this turn (cards + damage that lands before your next play).\nHover an enemy to scope to it; the energy gem glows green when you can kill it."
+    "incomingTip": "Incoming damage\nx / y  —  the HP you'll take if you play no more block (current block + end-of-turn relics)\nover the minimum you could take by also playing your hand's block optimally.",
+    "offenseTip": "Your damage\nx / y  —  the most you can deal before the enemies act\nover the most before your next turn (that + scheduled damage like poison).\nHover an enemy to scope to it; the energy gem glows green when you can kill it."
   },
   "hud": {
     "handRaiseFrac": 0.2,
