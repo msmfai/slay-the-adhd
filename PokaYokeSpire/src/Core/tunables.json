@@ -1,20 +1,20 @@
 {
   "gem": {
-    "fontFrac": 0.195,
+    "fontFrac": 0.155,
     "gap": 10.5,
-    "scale": 0.73,
+    "scale": 0.78,
     "blueTint": [
       0,
       2,
       2
     ],
     "redTint": [
-      2,
-      2,
+      1.96,
+      1.96,
       0
     ],
-    "incomingTip": "Incoming damage\nx → y  —  the HP you'll take if you play no more block (current block + end-of-turn relics),\nreducible to y by also playing your hand's block optimally.",
-    "offenseTip": "Your damage\nx + d  —  the most you can deal before the enemies act, plus d that lands on its own\nbefore your next turn (current scheduled damage, e.g. poison).\nHover an enemy to scope to it; the energy gem glows green when you can kill it."
+    "incomingTip": "Defense\nHow much damage you will take before the start of your next turn, and the minimum ammount of damage you can recieve with your current hand.",
+    "offenseTip": "Offense\nThe maximum damage you can deal with this hand, plus damage enemies will take from effects before your next turn. Highlight an enemy for single enemy values. "
   },
   "hud": {
     "handRaiseFrac": 0.2,
@@ -29,15 +29,15 @@
     "radius": 140
   },
   "reward": {
-    "rewardRaise": 74,
-    "deckRaiseFracOfReward": 0.45
+    "rewardRaise": 72,
+    "deckRaiseFracOfReward": 0.3
   },
   "deckFan": {
-    "gap": 9,
-    "minVisibleStep": 25
+    "gap": 11,
+    "minVisibleStep": 26
   },
   "sidePanel": {
-    "marginFrac": 0.035
+    "marginFrac": 0.045
   },
   "cardPreview": {
     "cursorOffsetX": 18,

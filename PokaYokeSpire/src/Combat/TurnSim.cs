@@ -1,0 +1,250 @@
+using System.Collections.Generic;
+using System.Text;
+
+namespace PokaYokeSpire.Combat;
+
+/// <summary>
+/// A faithful (if partial) forward simulator of ONE of your turns, shared by both gems. It plays out
+/// every reachable sequence of your hand against a snapshot of the board (player + enemies + powers),
+/// threading state so path-dependent effects resolve correctly — Bash's Vulnerable boosts a later
+/// Strike, Second Wind sees fewer cards after a Defend, Body Slam scales with block you've gained, your
+/// Weak/Shrink lower your own damage, etc. Over all reachable states it reports:
+///   • MaxDamage / MaxPerEnemy — the most HP damage you can deal (offense gem, and per-enemy for hover);
+///   • MinHpLost — the least HP you can lose to the enemies' queued attacks (defense gem), by blocking,
+///     Weakening attackers, and killing them.
+///
+/// PURE + deterministic (no Godot/game types) so it is exhaustively unit-tested; a separate reader
+/// snapshots the live game into these structs on the game thread. Efficiency comes from path-dependence:
+/// branches that reach an identical state are memoized, and the node budget bounds pathological hands
+/// (when hit, the result is a conservative lower bound on damage / upper bound on HP lost).
+///
+/// Coverage is the "encoded so far" set; the reader logs anything it can't map so the gap closes from
+/// real play. Damage math models the STS pipeline: (base + Strength) → ×¾ if attacker Weak → ×3⁄2 if
+/// defender Vulnerable, flooring at each step; block is (base + Dexterity) → ×¾ if Frail.
+/// </summary>
+public static class TurnSim
+{
+    public enum Tgt { None, OneEnemy, AllEnemies }
+    public enum Dyn { None, BodySlam, SecondWind }   // bespoke, state-dependent cards
+
+    public struct Enemy
+    {
+        public int Hp, Block, Vulnerable, Weak;
+        public int IntentDamage, IntentHits;   // this enemy's queued attack (0 if it isn't attacking)
+        public bool Alive => Hp > 0;
+    }
+
+    public struct Player
+    {
+        public int Energy, Strength, Dexterity, Weak, Frail, Block, Vulnerable;
+    }
+
+    /// A hand card reduced to its modeled effects. Damage &gt; 0 ⇒ it's an attack (a NonAttack otherwise,
+    /// which is what Second Wind counts/exhausts).
+    public sealed class Card
+    {
+        public string Name = "";
+        public int Cost;
+        public int Damage, Hits = 1;
+        public Tgt AttackTarget = Tgt.None;
+        public int Block;
+        public int StrengthGain;
+        public int ApplyVulnerable; public Tgt VulnTarget = Tgt.None;
+        public int ApplyWeak; public Tgt WeakTarget = Tgt.None;
+        public int EnergyGain;
+        public bool Exhausts;
+        public Dyn Dynamic = Dyn.None;
+        public int DynParam;   // e.g. Second Wind's block-per-exhausted-card
+        public bool IsAttack => Damage > 0 || Dynamic == Dyn.BodySlam;
+    }
+
+    public struct Result
+    {
+        public int MaxDamage;
+        public int[] MaxPerEnemy;
+        public int MinHpLost;
+    }
+
+    // ── damage / block math (STS pipeline) ──
+    internal static int Atk(int baseDmg, int strength, int attackerWeak, int defenderVuln)
+    {
+        int d = baseDmg + strength;
+        if (d < 0) d = 0;
+        if (attackerWeak > 0) d = d * 3 / 4;     // Weak: −25%, floored
+        if (defenderVuln > 0) d = d * 3 / 2;     // Vulnerable: +50%, floored
+        return d;
+    }
+
+    internal static int Blk(int baseBlock, int dexterity, bool frail)
+    {
+        int b = baseBlock + dexterity;
+        if (b < 0) b = 0;
+        if (frail) b = b * 3 / 4;                // Frail: −25%, floored
+        return b;
+    }
+
+    /// HP you'd lose to the enemies' queued attacks in the current state (block absorbs the total).
+    internal static int HpLost(in Player p, Enemy[] enemies)
+    {
+        int incoming = 0;
+        foreach (var e in enemies)
+        {
+            if (!e.Alive || e.IntentDamage <= 0) continue;
+            incoming += Atk(e.IntentDamage, 0, e.Weak, p.Vulnerable) * (e.IntentHits < 1 ? 1 : e.IntentHits);
+        }
+        int net = incoming - p.Block;
+        return net < 0 ? 0 : net;
+    }
+
+    public static Result Solve(Player player, Enemy[] enemies, IReadOnlyList<Card> hand, int nodeCap = 200000)
+    {
+        int n = enemies.Length;
+        var initialHp = new int[n];
+        for (int i = 0; i < n; i++) initialHp[i] = enemies[i].Hp;
+
+        var best = new Result { MaxDamage = 0, MaxPerEnemy = new int[n], MinHpLost = HpLost(player, enemies) };
+        var visited = new HashSet<string>();
+        int nodes = 0;
+        ulong fullMask = hand.Count >= 64 ? ulong.MaxValue : (1UL << hand.Count) - 1;
+        Recurse(player, enemies, hand, fullMask, initialHp, ref best, visited, ref nodes, nodeCap);
+        return best;
+    }
+
+    private static void Recurse(Player p, Enemy[] enemies, IReadOnlyList<Card> hand, ulong remaining,
+                                int[] initialHp, ref Result best, HashSet<string> visited, ref int nodes, int cap)
+    {
+        // evaluate THIS reachable state (you can stop playing at any point)
+        int totalDealt = 0;
+        for (int i = 0; i < enemies.Length; i++)
+        {
+            int dealt = initialHp[i] - (enemies[i].Hp < 0 ? 0 : enemies[i].Hp);
+            if (dealt < 0) dealt = 0;
+            if (dealt > best.MaxPerEnemy[i]) best.MaxPerEnemy[i] = dealt;
+            totalDealt += dealt;
+        }
+        if (totalDealt > best.MaxDamage) best.MaxDamage = totalDealt;
+        int hpLost = HpLost(p, enemies);
+        if (hpLost < best.MinHpLost) best.MinHpLost = hpLost;
+
+        if (nodes >= cap) return;
+        string key = StateKey(p, enemies, remaining);
+        if (!visited.Add(key)) return;   // path-dependence: an identical state has already been expanded
+
+        for (int i = 0; i < hand.Count; i++)
+        {
+            ulong bit = 1UL << i;
+            if ((remaining & bit) == 0) continue;
+            var c = hand[i];
+            if (c.Cost > p.Energy) continue;
+
+            // a single-target attack branches over each live enemy target; everything else has one branch
+            bool singleTarget = c.AttackTarget == Tgt.OneEnemy && c.Damage > 0;
+            if (singleTarget)
+            {
+                for (int t = 0; t < enemies.Length; t++)
+                {
+                    if (!enemies[t].Alive) continue;
+                    nodes++;
+                    var (np, ne, nr) = Play(p, enemies, hand, remaining, i, t);
+                    Recurse(np, ne, hand, nr, initialHp, ref best, visited, ref nodes, cap);
+                    if (nodes >= cap) return;
+                }
+            }
+            else
+            {
+                nodes++;
+                var (np, ne, nr) = Play(p, enemies, hand, remaining, i, -1);
+                Recurse(np, ne, hand, nr, initialHp, ref best, visited, ref nodes, cap);
+                if (nodes >= cap) return;
+            }
+        }
+    }
+
+    /// Apply one card, returning the new (player, enemies, remaining-mask). Damage lands FIRST, then the
+    /// card's own status/buffs (so a card never benefits from the Vulnerable it applies).
+    private static (Player, Enemy[], ulong) Play(Player p, Enemy[] src, IReadOnlyList<Card> hand,
+                                                 ulong remaining, int cardIndex, int target)
+    {
+        var c = hand[cardIndex];
+        var e = (Enemy[])src.Clone();
+        p.Energy -= c.Cost;
+        p.Energy += c.EnergyGain;
+
+        int dmg = c.Damage;
+        if (c.Dynamic == Dyn.BodySlam) dmg = p.Block;   // Body Slam: damage == current block
+
+        if (dmg > 0)
+        {
+            int hits = c.Hits < 1 ? 1 : c.Hits;
+            if (c.AttackTarget == Tgt.AllEnemies)
+            {
+                for (int t = 0; t < e.Length; t++) if (e[t].Alive) HitEnemy(ref e[t], dmg, hits, p);
+            }
+            else
+            {
+                int t = target >= 0 ? target : FirstAlive(e);
+                if (t >= 0) HitEnemy(ref e[t], dmg, hits, p);
+            }
+        }
+
+        if (c.Block > 0) p.Block += Blk(c.Block, p.Dexterity, p.Frail > 0);
+
+        if (c.Dynamic == Dyn.SecondWind)
+        {
+            // exhaust all OTHER non-attack cards; gain DynParam block for each (Dex/Frail-adjusted)
+            int exhausted = 0;
+            ulong toExhaust = 0;
+            for (int j = 0; j < hand.Count; j++)
+            {
+                if (j == cardIndex) continue;
+                if ((remaining & (1UL << j)) == 0) continue;
+                if (!hand[j].IsAttack) { toExhaust |= 1UL << j; exhausted++; }
+            }
+            p.Block += Blk(c.DynParam, p.Dexterity, p.Frail > 0) * exhausted;
+            remaining &= ~toExhaust;
+        }
+
+        if (c.StrengthGain != 0) p.Strength += c.StrengthGain;
+        ApplyStatus(ref e, c.ApplyVulnerable, c.VulnTarget, target, isVuln: true);
+        ApplyStatus(ref e, c.ApplyWeak, c.WeakTarget, target, isVuln: false);
+
+        remaining &= ~(1UL << cardIndex);
+        return (p, e, remaining);
+    }
+
+    private static void HitEnemy(ref Enemy e, int baseDmg, int hits, in Player p)
+    {
+        for (int h = 0; h < hits; h++)
+        {
+            int dmg = Atk(baseDmg, p.Strength, p.Weak, e.Vulnerable);
+            int afterBlock = dmg - e.Block;
+            if (afterBlock <= 0) { e.Block -= dmg; if (e.Block < 0) e.Block = 0; continue; }
+            e.Block = 0;
+            e.Hp -= afterBlock;
+        }
+    }
+
+    private static void ApplyStatus(ref Enemy[] e, int amount, Tgt tgt, int target, bool isVuln)
+    {
+        if (amount <= 0 || tgt == Tgt.None) return;
+        if (tgt == Tgt.AllEnemies)
+            for (int t = 0; t < e.Length; t++) { if (!e[t].Alive) continue; if (isVuln) e[t].Vulnerable += amount; else e[t].Weak += amount; }
+        else
+        {
+            int t = target >= 0 ? target : FirstAlive(e);
+            if (t >= 0) { if (isVuln) e[t].Vulnerable += amount; else e[t].Weak += amount; }
+        }
+    }
+
+    private static int FirstAlive(Enemy[] e) { for (int i = 0; i < e.Length; i++) if (e[i].Alive) return i; return -1; }
+
+    private static string StateKey(in Player p, Enemy[] e, ulong remaining)
+    {
+        var sb = new StringBuilder(64);
+        sb.Append(remaining).Append('|').Append(p.Energy).Append(',').Append(p.Strength).Append(',')
+          .Append(p.Dexterity).Append(',').Append(p.Weak).Append(',').Append(p.Frail).Append(',')
+          .Append(p.Block).Append(',').Append(p.Vulnerable).Append('|');
+        foreach (var x in e) sb.Append(x.Hp).Append(':').Append(x.Block).Append(':').Append(x.Vulnerable).Append(':').Append(x.Weak).Append(';');
+        return sb.ToString();
+    }
+}
