@@ -47,11 +47,12 @@ public static class GameTooltip
     }
 
     /// Bind a control to show the game hover tip (title = loc <paramref name="titleKey"/>, body = literal
-    /// <paramref name="body"/>) on hover, positioned by <paramref name="alignment"/> relative to the node
-    /// (the game's own SetAlignment; None leaves it at the screen origin, so always pass Left/Right/Center).
+    /// <paramref name="body"/>) on hover, placed at <c>node.GlobalPosition + <paramref name="offset"/></c>
+    /// — exactly how NEnergyCounter positions its own tip (CreateAndShow with default alignment, then set
+    /// GlobalPosition manually). Anchoring at the node means the tip inherits the node's horizontal offset.
     /// The node is set to STOP so it consumes its own hover — otherwise the hover also propagates to its
     /// parent (the energy counter) and that shows its energy tip too.
-    public static void Bind(Control node, string titleKey, string body, HoverTipAlignment alignment)
+    public static void Bind(Control node, string titleKey, string body, Vector2 offset)
     {
         try
         {
@@ -63,8 +64,10 @@ public static class GameTooltip
                 {
                     EnsureLoc();
                     var tip = new HoverTip(new LocString(Table, titleKey), body ?? "");
-                    NHoverTipSet.CreateAndShow(node, tip, alignment);
-                    if (DebugLog.Enabled) DebugLog.Debug($"hovertip show: {titleKey} align={alignment}");
+                    var set = NHoverTipSet.CreateAndShow(node, tip);
+                    if (set != null && GodotObject.IsInstanceValid(set))
+                        set.GlobalPosition = node.GlobalPosition + offset;
+                    if (DebugLog.Enabled) DebugLog.Debug($"hovertip show: {titleKey} at {(GodotObject.IsInstanceValid(set) ? set.GlobalPosition : Vector2.Zero)}");
                 }
                 catch (Exception e) { DebugLog.Error("GameTooltip.enter", e); }
             };

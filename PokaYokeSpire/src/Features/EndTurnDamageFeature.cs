@@ -292,9 +292,9 @@ internal static class EndTurnDamageFeature
         // live tunable text. Pass mouse filter → hover fires but clicks still pass through.
         var (title, body) = SplitTip(tooltip);
         GameTooltip.SetTitle(tipKey, title);
-        // left gem → tip to its left, right gem → tip to its right (game positions + corrects overflow)
-        GameTooltip.Bind(attached, tipKey, body,
-            isLeft ? MegaCrit.Sts2.Core.HoverTips.HoverTipAlignment.Left : MegaCrit.Sts2.Core.HoverTips.HoverTipAlignment.Right);
+        // above the gem, same offset the energy counter uses for its own tip; anchoring at the gem means
+        // the tip inherits the gem's horizontal offset (so it sits above THIS gem, not the counter).
+        GameTooltip.Bind(attached, tipKey, body, new Vector2(-70f, -200f));
         return new Orb { Gem = attached, SetText = setText, IsLeft = isLeft };
     }
 
