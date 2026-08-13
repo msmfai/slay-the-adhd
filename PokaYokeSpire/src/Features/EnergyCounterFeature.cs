@@ -51,6 +51,8 @@ internal static class EnergyCounterFeature
     {
         {
             Instance = __instance;
+            LiveTuning.Ensure(__instance);   // spawn the F9 tuning panel here too — independent of any
+                                             // feature toggle, so F9 works whenever the counter is alive
             if (!_loggedActive)
             {
                 _loggedActive = true;
