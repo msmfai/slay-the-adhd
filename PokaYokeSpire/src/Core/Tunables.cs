@@ -34,8 +34,70 @@ public static class Tunables
     public static float HandRaiseFrac { get; private set; } = 0.5f;
     public static float CounterRaiseFracOfHand { get; private set; } = 1f / 3f;
 
-    /// Bumped on every successful (re)load; features compare it to know when to rebuild.
+    /// Bumped on every successful (re)load OR live edit; features compare it to know when to rebuild.
     public static int Revision { get; private set; }
+    private static void Bump() => Revision++;
+
+    // ── knob registry: the numeric tunables as (path, range, get, set) so a UI can build sliders and
+    //    save generically. Colours are exposed as three r/g/b knobs; text (tooltips) stays JSON-only. ──
+    public sealed class Knob
+    {
+        public string Path = "";
+        public float Min, Max, Step;
+        public Func<float> Get = () => 0f;
+        public Action<float> Set = _ => { };
+    }
+
+    public static readonly System.Collections.Generic.List<Knob> Knobs = new()
+    {
+        new() { Path = "gem.fontFrac", Min = 0.05f, Max = 0.60f, Step = 0.005f, Get = () => GemFontFrac, Set = v => { GemFontFrac = v; Bump(); } },
+        new() { Path = "gem.gap",      Min = 0f,    Max = 60f,   Step = 0.5f,   Get = () => GemGap,      Set = v => { GemGap = v; Bump(); } },
+        new() { Path = "gem.scale",    Min = 0.20f, Max = 1.20f, Step = 0.01f,  Get = () => GemScale,    Set = v => { GemScale = v; Bump(); } },
+        new() { Path = "gem.blueTint.r", Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemBlueTint.R, Set = v => { GemBlueTint = new Color(v, GemBlueTint.G, GemBlueTint.B); Bump(); } },
+        new() { Path = "gem.blueTint.g", Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemBlueTint.G, Set = v => { GemBlueTint = new Color(GemBlueTint.R, v, GemBlueTint.B); Bump(); } },
+        new() { Path = "gem.blueTint.b", Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemBlueTint.B, Set = v => { GemBlueTint = new Color(GemBlueTint.R, GemBlueTint.G, v); Bump(); } },
+        new() { Path = "gem.redTint.r",  Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemRedTint.R,  Set = v => { GemRedTint = new Color(v, GemRedTint.G, GemRedTint.B); Bump(); } },
+        new() { Path = "gem.redTint.g",  Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemRedTint.G,  Set = v => { GemRedTint = new Color(GemRedTint.R, v, GemRedTint.B); Bump(); } },
+        new() { Path = "gem.redTint.b",  Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemRedTint.B,  Set = v => { GemRedTint = new Color(GemRedTint.R, GemRedTint.G, v); Bump(); } },
+        new() { Path = "hud.handRaiseFrac",           Min = 0f, Max = 2f, Step = 0.02f, Get = () => HandRaiseFrac,           Set = v => { HandRaiseFrac = v; Bump(); } },
+        new() { Path = "hud.counterRaiseFracOfHand",  Min = 0f, Max = 1f, Step = 0.01f, Get = () => CounterRaiseFracOfHand,  Set = v => { CounterRaiseFracOfHand = v; Bump(); } },
+    };
+
+    /// Serialize the CURRENT values back to the tunables.json schema (indented, so it stays readable in
+    /// source). Text tooltips are included so a save never drops them.
+    public static string ToJson()
+    {
+        var gem = new System.Collections.Generic.Dictionary<string, object>
+        {
+            ["fontFrac"] = Round(GemFontFrac), ["gap"] = Round(GemGap), ["scale"] = Round(GemScale),
+            ["blueTint"] = new[] { Round(GemBlueTint.R), Round(GemBlueTint.G), Round(GemBlueTint.B) },
+            ["redTint"] = new[] { Round(GemRedTint.R), Round(GemRedTint.G), Round(GemRedTint.B) },
+            ["incomingTip"] = IncomingTip, ["offenseTip"] = OffenseTip,
+        };
+        var hud = new System.Collections.Generic.Dictionary<string, object>
+        {
+            ["handRaiseFrac"] = Round(HandRaiseFrac), ["counterRaiseFracOfHand"] = Round(CounterRaiseFracOfHand),
+        };
+        var root = new System.Collections.Generic.Dictionary<string, object> { ["gem"] = gem, ["hud"] = hud };
+        return JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static double Round(float v) => System.Math.Round(v, 4);
+
+    /// Write the current values to <paramref name="path"/> (the panel passes <see cref="DiskPath"/> so
+    /// Save persists to the repo source). Never throws.
+    public static bool WriteTo(string path)
+    {
+        try
+        {
+            File.WriteAllText(path, ToJson());
+            // adopt our own write as the last-seen state so the disk poller doesn't immediately reload it
+            _lastWrite = File.GetLastWriteTimeUtc(path);
+            DebugLog.Info($"Tunables saved to {path}");
+            return true;
+        }
+        catch (Exception e) { DebugLog.Error("Tunables.WriteTo", e); return false; }
+    }
 
     static Tunables()
     {
