@@ -1,45 +1,51 @@
 {
-  "_comment": "Single source of truth for the mod's tunable layout/appearance values. Embedded into the DLL at build (compile-time authoritative, baked into release with no disk IO). With Config.LiveTuning ON (debug), the running game watches THIS file and hot-applies edits — no recompile, no relaunch.",
-
   "gem": {
-    "fontFrac": 0.20,
-    "gap": 14.0,
-    "scale": 0.6667,
-    "blueTint": [0.18, 0.42, 1.8],
-    "redTint": [1.9, 0.5, 0.28],
-    "incomingTip": "Incoming damage\nx / y  —  the HP you'll actually lose this turn if you end now (after block)\nover the raw damage the enemies are outputting.",
-    "offenseTip": "Your damage\nx / y  —  the most HP you can deal this turn over that plus damage that lands before\nyour next play (poison, start-of-turn effects, …). Hover an enemy to scope both numbers to it."
+    "fontFrac": 0.215,
+    "gap": 10.5,
+    "scale": 0.73,
+    "blueTint": [
+      0,
+      2,
+      2
+    ],
+    "redTint": [
+      2,
+      2,
+      0
+    ],
+    "incomingTip": "Incoming damage\nx / y  \u2014  the HP you\u0027ll actually lose this turn if you end now (after block)\nover the raw damage the enemies are outputting.",
+    "offenseTip": "Your damage\nx / y  \u2014  the most HP you can deal this turn over that plus damage that lands before\nyour next play (poison, start-of-turn effects, \u2026). Hover an enemy to scope both numbers to it."
   },
-
   "hud": {
-    "handRaiseFrac": 0.5,
-    "counterRaiseFracOfHand": 0.3333
+    "handRaiseFrac": 0.18,
+    "counterRaiseFracOfHand": 0.3333,
+    "groupOffsetX": 0,
+    "groupOffsetY": 0
   },
-
   "energy": {
-    "heightFrac": 0.7
+    "heightFrac": 0.67
   },
-
   "radial": {
-    "radius": 140.0
+    "radius": 140
   },
-
   "reward": {
-    "rewardRaise": 64.0,
-    "deckRaiseFracOfReward": 0.5
+    "rewardRaise": 72,
+    "deckRaiseFracOfReward": 0.45
   },
-
   "deckFan": {
-    "gap": 14.0,
-    "minVisibleStep": 26.0
+    "gap": 7,
+    "minVisibleStep": 25
   },
-
   "sidePanel": {
-    "marginFrac": 0.02
+    "marginFrac": 0.03
   },
-
   "cardPreview": {
-    "cursorOffsetX": 24.0,
-    "cursorOffsetY": 16.0
+    "cursorOffsetX": 18,
+    "cursorOffsetY": 16
+  },
+  "enemy": {
+    "healthBarOffsetY": 0,
+    "statusOffsetY": 0,
+    "intentOffsetY": 0
   }
 }

@@ -130,8 +130,11 @@ internal static class EndTurnDamageFeature
     private static void BuildOrbs(NEnergyCounter counter)
     {
         DumpCounterTree(counter);
-        if (_left?.Gem != null && GodotObject.IsInstanceValid(_left.Gem)) _left.Gem.QueueFree();
-        if (_right?.Gem != null && GodotObject.IsInstanceValid(_right.Gem)) _right.Gem.QueueFree();
+        // rename before freeing so the name is released THIS frame — otherwise the idempotent
+        // Overlay.Attach below finds the still-alive dying node and returns it (untooltipped),
+        // and the hovered gem falls through to the energy counter's own tooltip.
+        if (_left?.Gem != null && GodotObject.IsInstanceValid(_left.Gem)) { _left.Gem.Name = "_pokaGemDeadL"; _left.Gem.QueueFree(); }
+        if (_right?.Gem != null && GodotObject.IsInstanceValid(_right.Gem)) { _right.Gem.Name = "_pokaGemDeadR"; _right.Gem.QueueFree(); }
         _orbNatural = counter.Size.X > 1f ? counter.Size.X : 100f;
         _left = BuildOrb(counter, "PokaYokeIncomingGem", isLeft: true, Tunables.GemBlueTint, Tunables.IncomingTip);
         _right = BuildOrb(counter, "PokaYokeOffenseGem", isLeft: false, Tunables.GemRedTint, Tunables.OffenseTip);
@@ -277,9 +280,9 @@ internal static class EndTurnDamageFeature
             Core.DebugLog.Debug(geo);
         }
 
-        Overlay.Attach(counter, name, () => gem);
-        Overlay.SetTooltip(gem, tooltip);   // hover-only (Pass) — informative but never eats a click
-        return new Orb { Gem = gem, SetText = setText, IsLeft = isLeft };
+        var attached = Overlay.Attach(counter, name, () => gem) ?? gem;
+        Overlay.SetTooltip(attached, tooltip);   // hover-only (Pass) — informative but never eats a click
+        return new Orb { Gem = attached, SetText = setText, IsLeft = isLeft };
     }
 
     private static int TryHp(Creature c) { try { return c.CurrentHp; } catch { return 0; } }
@@ -300,6 +303,13 @@ internal static class EndTurnDamageFeature
     private static void OnCreatureHovered(NCreature c)
     {
         try { _hoveredEnemy = c?.Entity; if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) { _rightText = RightText(); UpdateOrbs(); } } catch { }
+    }
+
+    /// Hover entry point that works with NO card selected (wired to each enemy's hitbox by EnemyHud),
+    /// so hovering an enemy scopes the offense orb to it even outside card-targeting mode.
+    internal static void OnEnemyHover(Creature? e)
+    {
+        try { _hoveredEnemy = e; if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) { _rightText = RightText(); UpdateOrbs(); } } catch { }
     }
 
     private static void OnCreatureUnhovered(NCreature c)

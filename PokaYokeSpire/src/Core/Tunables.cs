@@ -30,9 +30,16 @@ public static class Tunables
     public static string IncomingTip { get; private set; } = "Incoming damage";
     public static string OffenseTip { get; private set; } = "Your damage";
 
-    // ── hud raise ──
+    // ── hud raise + whole-cluster offset ──
     public static float HandRaiseFrac { get; private set; } = 0.5f;
     public static float CounterRaiseFracOfHand { get; private set; } = 1f / 3f;
+    public static float HudGroupOffsetX { get; private set; }   // shift the whole hand+counter cluster
+    public static float HudGroupOffsetY { get; private set; }
+
+    // ── enemy HUD nudges (experimental; 0 = don't move anything). Applied only when the toggle is on. ──
+    public static float EnemyHealthBarOffsetY { get; private set; }
+    public static float EnemyStatusOffsetY { get; private set; }
+    public static float EnemyIntentOffsetY { get; private set; }
 
     // ── energy counter ──
     public static float EnergyHeightFrac { get; private set; } = 1.03f;   // fraction of screen height
@@ -72,12 +79,13 @@ public static class Tunables
         new() { Path = "gem.fontFrac", Min = 0.05f, Max = 0.60f, Step = 0.005f, Get = () => GemFontFrac, Set = v => { GemFontFrac = v; Bump(); } },
         new() { Path = "gem.gap",      Min = 0f,    Max = 60f,   Step = 0.5f,   Get = () => GemGap,      Set = v => { GemGap = v; Bump(); } },
         new() { Path = "gem.scale",    Min = 0.20f, Max = 1.20f, Step = 0.01f,  Get = () => GemScale,    Set = v => { GemScale = v; Bump(); } },
-        new() { Path = "gem.blueTint.r", Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemBlueTint.R, Set = v => { GemBlueTint = new Color(v, GemBlueTint.G, GemBlueTint.B); Bump(); } },
-        new() { Path = "gem.blueTint.g", Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemBlueTint.G, Set = v => { GemBlueTint = new Color(GemBlueTint.R, v, GemBlueTint.B); Bump(); } },
-        new() { Path = "gem.blueTint.b", Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemBlueTint.B, Set = v => { GemBlueTint = new Color(GemBlueTint.R, GemBlueTint.G, v); Bump(); } },
-        new() { Path = "gem.redTint.r",  Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemRedTint.R,  Set = v => { GemRedTint = new Color(v, GemRedTint.G, GemRedTint.B); Bump(); } },
-        new() { Path = "gem.redTint.g",  Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemRedTint.G,  Set = v => { GemRedTint = new Color(GemRedTint.R, v, GemRedTint.B); Bump(); } },
-        new() { Path = "gem.redTint.b",  Min = 0f, Max = 2f, Step = 0.02f, Get = () => GemRedTint.B,  Set = v => { GemRedTint = new Color(GemRedTint.R, GemRedTint.G, v); Bump(); } },
+        // hue/saturation/BRIGHTNESS (value can exceed 1 for an HDR glow) — far more intuitive than raw RGB
+        new() { Path = "gem.blueHue",   Min = 0f, Max = 1f, Step = 0.01f, Get = () => GemBlueTint.H, Set = v => { GemBlueTint = WithHue(GemBlueTint, v); Bump(); } },
+        new() { Path = "gem.blueSat",   Min = 0f, Max = 1f, Step = 0.01f, Get = () => GemBlueTint.S, Set = v => { GemBlueTint = WithSat(GemBlueTint, v); Bump(); } },
+        new() { Path = "gem.blueBright",Min = 0f, Max = 2f, Step = 0.02f, Get = () => Maxc(GemBlueTint), Set = v => { GemBlueTint = WithVal(GemBlueTint, v); Bump(); } },
+        new() { Path = "gem.redHue",    Min = 0f, Max = 1f, Step = 0.01f, Get = () => GemRedTint.H, Set = v => { GemRedTint = WithHue(GemRedTint, v); Bump(); } },
+        new() { Path = "gem.redSat",    Min = 0f, Max = 1f, Step = 0.01f, Get = () => GemRedTint.S, Set = v => { GemRedTint = WithSat(GemRedTint, v); Bump(); } },
+        new() { Path = "gem.redBright", Min = 0f, Max = 2f, Step = 0.02f, Get = () => Maxc(GemRedTint), Set = v => { GemRedTint = WithVal(GemRedTint, v); Bump(); } },
         new() { Path = "hud.handRaiseFrac",           Min = 0f, Max = 2f, Step = 0.02f, Get = () => HandRaiseFrac,           Set = v => { HandRaiseFrac = v; Bump(); } },
         new() { Path = "hud.counterRaiseFracOfHand",  Min = 0f, Max = 1f, Step = 0.01f, Get = () => CounterRaiseFracOfHand,  Set = v => { CounterRaiseFracOfHand = v; Bump(); } },
         new() { Path = "energy.heightFrac",           Min = 0.40f, Max = 1.20f, Step = 0.01f, Get = () => EnergyHeightFrac,        Set = v => { EnergyHeightFrac = v; Bump(); } },
@@ -89,7 +97,19 @@ public static class Tunables
         new() { Path = "sidePanel.marginFrac",        Min = 0f,    Max = 0.10f, Step = 0.005f,Get = () => SidePanelMarginFrac,     Set = v => { SidePanelMarginFrac = v; Bump(); } },
         new() { Path = "cardPreview.cursorOffsetX",   Min = -80f,  Max = 80f,   Step = 2f,    Get = () => CardPreviewOffsetX,      Set = v => { CardPreviewOffsetX = v; Bump(); } },
         new() { Path = "cardPreview.cursorOffsetY",   Min = -80f,  Max = 80f,   Step = 2f,    Get = () => CardPreviewOffsetY,      Set = v => { CardPreviewOffsetY = v; Bump(); } },
+        new() { Path = "hud.groupOffsetX",            Min = -400f, Max = 400f,  Step = 2f,    Get = () => HudGroupOffsetX,         Set = v => { HudGroupOffsetX = v; Bump(); } },
+        new() { Path = "hud.groupOffsetY",            Min = -400f, Max = 400f,  Step = 2f,    Get = () => HudGroupOffsetY,         Set = v => { HudGroupOffsetY = v; Bump(); } },
+        new() { Path = "enemy.healthBarOffsetY",      Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyHealthBarOffsetY,   Set = v => { EnemyHealthBarOffsetY = v; Bump(); } },
+        new() { Path = "enemy.statusOffsetY",         Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyStatusOffsetY,      Set = v => { EnemyStatusOffsetY = v; Bump(); } },
+        new() { Path = "enemy.intentOffsetY",         Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyIntentOffsetY,      Set = v => { EnemyIntentOffsetY = v; Bump(); } },
     };
+
+    // ── HSV helpers: keep hue/sat, drive BRIGHTNESS as the max component (allowing HDR > 1) ──
+    private static float Maxc(Color c) => Mathf.Max(c.R, Mathf.Max(c.G, c.B));
+    private static Color Normalized(Color c) { float m = Maxc(c); return m > 0.0001f ? new Color(c.R / m, c.G / m, c.B / m) : Colors.White; }
+    private static Color WithVal(Color c, float v) { var n = Normalized(c); return new Color(n.R * v, n.G * v, n.B * v); }
+    private static Color WithHue(Color c, float h) { var b = Color.FromHsv(h, c.S, 1f); float v = Maxc(c); return new Color(b.R * v, b.G * v, b.B * v); }
+    private static Color WithSat(Color c, float s) { var b = Color.FromHsv(c.H, s, 1f); float v = Maxc(c); return new Color(b.R * v, b.G * v, b.B * v); }
 
     /// Serialize the CURRENT values back to the tunables.json schema (indented, so it stays readable in
     /// source). Text tooltips are included so a save never drops them.
@@ -105,6 +125,7 @@ public static class Tunables
         var hud = new System.Collections.Generic.Dictionary<string, object>
         {
             ["handRaiseFrac"] = Round(HandRaiseFrac), ["counterRaiseFracOfHand"] = Round(CounterRaiseFracOfHand),
+            ["groupOffsetX"] = Round(HudGroupOffsetX), ["groupOffsetY"] = Round(HudGroupOffsetY),
         };
         var root = new System.Collections.Generic.Dictionary<string, object>
         {
@@ -124,6 +145,12 @@ public static class Tunables
             ["cardPreview"] = new System.Collections.Generic.Dictionary<string, object>
             {
                 ["cursorOffsetX"] = Round(CardPreviewOffsetX), ["cursorOffsetY"] = Round(CardPreviewOffsetY),
+            },
+            ["enemy"] = new System.Collections.Generic.Dictionary<string, object>
+            {
+                ["healthBarOffsetY"] = Round(EnemyHealthBarOffsetY),
+                ["statusOffsetY"] = Round(EnemyStatusOffsetY),
+                ["intentOffsetY"] = Round(EnemyIntentOffsetY),
             },
         };
         return JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
@@ -221,6 +248,14 @@ public static class Tunables
             {
                 HandRaiseFrac = F(hud, "handRaiseFrac", HandRaiseFrac);
                 CounterRaiseFracOfHand = F(hud, "counterRaiseFracOfHand", CounterRaiseFracOfHand);
+                HudGroupOffsetX = F(hud, "groupOffsetX", HudGroupOffsetX);
+                HudGroupOffsetY = F(hud, "groupOffsetY", HudGroupOffsetY);
+            }
+            if (root.TryGetProperty("enemy", out var em))
+            {
+                EnemyHealthBarOffsetY = F(em, "healthBarOffsetY", EnemyHealthBarOffsetY);
+                EnemyStatusOffsetY = F(em, "statusOffsetY", EnemyStatusOffsetY);
+                EnemyIntentOffsetY = F(em, "intentOffsetY", EnemyIntentOffsetY);
             }
             if (root.TryGetProperty("energy", out var en))
                 EnergyHeightFrac = F(en, "heightFrac", EnergyHeightFrac);

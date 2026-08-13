@@ -80,6 +80,39 @@ public class TunablesTests
     }
 
     [Fact]
+    public void GemBrightnessKnob_ControlsValue_IndependentOfHue()
+    {
+        // pin the "I can't control brightness" fix: the brightness knob sets the max channel (value)
+        // without changing hue; the hue knob changes hue without collapsing brightness.
+        var bright = Tunables.Knobs.First(k => k.Path == "gem.blueBright");
+        var hue = Tunables.Knobs.First(k => k.Path == "gem.blueHue");
+
+        hue.Set(0.6f);            // some blue-ish hue
+        bright.Set(1.5f);
+        Assert.Equal(1.5f, System.MathF.Max(Tunables.GemBlueTint.R, System.MathF.Max(Tunables.GemBlueTint.G, Tunables.GemBlueTint.B)), 2);
+        Assert.Equal(0.6f, Tunables.GemBlueTint.H, 2);   // hue preserved
+
+        bright.Set(0.5f);         // dim it — hue still preserved, value drops
+        Assert.Equal(0.5f, System.MathF.Max(Tunables.GemBlueTint.R, System.MathF.Max(Tunables.GemBlueTint.G, Tunables.GemBlueTint.B)), 2);
+        Assert.Equal(0.6f, Tunables.GemBlueTint.H, 2);
+    }
+
+    [Fact]
+    public void HudGroupOffset_And_Enemy_RoundTrip()
+    {
+        Tunables.Load(@"{ ""hud"": { ""groupOffsetX"": 30.0, ""groupOffsetY"": -20.0 },
+                          ""enemy"": { ""healthBarOffsetY"": -40.0, ""statusOffsetY"": 12.0, ""intentOffsetY"": -55.0 } }");
+        string json = Tunables.ToJson();
+        Tunables.Load("{ \"hud\": { \"groupOffsetX\": 0.0 } }");
+        Tunables.Load(json);
+        Assert.Equal(30f, Tunables.HudGroupOffsetX, 3);
+        Assert.Equal(-20f, Tunables.HudGroupOffsetY, 3);
+        Assert.Equal(-40f, Tunables.EnemyHealthBarOffsetY, 3);
+        Assert.Equal(12f, Tunables.EnemyStatusOffsetY, 3);
+        Assert.Equal(-55f, Tunables.EnemyIntentOffsetY, 3);
+    }
+
+    [Fact]
     public void AllMigratedSections_RoundTrip_ThroughToJson()
     {
         Tunables.Load(@"{
@@ -123,10 +156,12 @@ public class TunablesTests
     {
         var paths = Tunables.Knobs.Select(k => k.Path).ToHashSet();
         foreach (var expected in new[] { "gem.fontFrac", "gem.gap", "gem.scale",
-                                         "gem.blueTint.r", "gem.redTint.b", "hud.handRaiseFrac",
+                                         "gem.blueHue", "gem.blueBright", "gem.redHue", "gem.redBright",
+                                         "hud.handRaiseFrac", "hud.groupOffsetX", "hud.groupOffsetY",
                                          "energy.heightFrac", "radial.radius", "reward.rewardRaise",
                                          "reward.deckRaiseFracOfReward", "deckFan.gap", "deckFan.minVisibleStep",
-                                         "sidePanel.marginFrac", "cardPreview.cursorOffsetX", "cardPreview.cursorOffsetY" })
+                                         "sidePanel.marginFrac", "cardPreview.cursorOffsetX", "cardPreview.cursorOffsetY",
+                                         "enemy.healthBarOffsetY", "enemy.statusOffsetY", "enemy.intentOffsetY" })
             Assert.Contains(expected, paths);
 
         var gap = Tunables.Knobs.First(k => k.Path == "gem.gap");

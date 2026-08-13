@@ -111,4 +111,9 @@ public class Config : SimpleModConfig
     /// Raise the hand by half the energy number's text height, and raise the energy counter by a
     /// third as much, to free a little vertical space.
     public static bool RaiseCombatHud { get; set; } = true;
+
+    /// EXPERIMENTAL — apply the enemy.* offsets (health bar / status icons / intent) from tunables.json
+    /// to every enemy, so you can reposition them (e.g. health bar above the sprite, intent higher
+    /// still). Off by default: with it off, enemy UI is untouched.
+    public static bool MoveEnemyHud { get; set; } = false;
 }
