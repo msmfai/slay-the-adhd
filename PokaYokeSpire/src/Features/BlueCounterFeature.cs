@@ -6,6 +6,7 @@ using MegaCrit.Sts2.Core.Models;                // RelicModel
 using MegaCrit.Sts2.Core.Nodes.Combat;          // NEnergyCounter
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions; // NClickableControl
 using MegaCrit.Sts2.Core.Nodes.Relics;          // NRelicInventoryHolder
+using PokaYokeSpire.Core;
 using PokaYokeSpire.Relics;
 
 namespace PokaYokeSpire.Features;
@@ -23,12 +24,9 @@ namespace PokaYokeSpire.Features;
 internal static class BlueCounterRightClick
 {
     private static void Postfix(NClickableControl __instance, InputEvent inputEvent)
+        => Feature.Run("blue-counter-click", () => Config.BlueCounters, () =>
     {
-        // FAIL-OPEN: this postfixes a very hot input method on EVERY clickable control, so it
-        // must never throw — that would break input handling game-wide.
-        try
         {
-            if (!Config.BlueCounters) return;
             if (inputEvent is not InputEventMouseButton mb) return;
             if (mb.ButtonIndex != MouseButton.Right || !mb.Pressed) return;
             if (__instance is not NRelicInventoryHolder holder) return;
@@ -37,8 +35,7 @@ internal static class BlueCounterRightClick
             if (model == null || !model.ShowCounter) return;
             BlueCounterManager.Toggle(model);
         }
-        catch { /* fail-open: never disturb input processing */ }
-    }
+    });
 }
 
 internal static class BlueCounterManager
@@ -101,6 +98,7 @@ internal static class BlueCounterManager
         {
             var (wrapper, label) = MakeCounter(layers, orbSize);
             energy.AddChild(wrapper);        // child of the energy counter
+            UiSafety.Passthrough(wrapper);   // input-safe by construction (invariant 1)
             _labels[relic] = label;
         }
     }

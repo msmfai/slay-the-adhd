@@ -5,6 +5,7 @@ using HarmonyLib;
 using MegaCrit.Sts2.Core.Models;         // RelicModel
 using MegaCrit.Sts2.Core.Nodes.Combat;   // NEnergyCounter
 using MegaCrit.Sts2.Core.Nodes.Relics;   // NRelicInventory, NRelic
+using PokaYokeSpire.Core;
 
 namespace PokaYokeSpire.Features;
 
@@ -20,20 +21,11 @@ namespace PokaYokeSpire.Features;
 internal static class RadialRelicsFeature
 {
     private static bool Prefix(RelicModel model)
-    {
-        // FAIL-OPEN: on any error, fall back to the game's normal inspect screen.
-        try
+        => Feature.Prefix("radial-relics", () => Config.RadialRelics, () =>
         {
-            if (!Config.RadialRelics) return true; // feature off -> normal inspect screen
             RadialRelicsManager.Toggle(model);
-            return false;
-        }
-        catch (System.Exception e)
-        {
-            MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] feature5 error (failing open): {e.Message}");
-            return true;
-        }
-    }
+            return false;   // suppress the inspect screen; the radial fan is shown instead
+        });   // passes through to the normal inspect screen on gate-off / disabled / any error
 }
 
 internal static class RadialRelicsManager
@@ -80,6 +72,7 @@ internal static class RadialRelicsManager
             var copy = NRelic.Create(relic, NRelic.IconSize.Small);
             if (copy == null) continue;
             energy.AddChild(copy); // child of the energy counter
+            UiSafety.Passthrough(copy);   // input-safe by construction (invariant 1)
             _visuals[relic] = copy;
         }
     }
