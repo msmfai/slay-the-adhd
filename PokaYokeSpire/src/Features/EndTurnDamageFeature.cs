@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.Combat;             // CombatState
 using MegaCrit.Sts2.Core.Entities.Creatures; // Creature
 using MegaCrit.Sts2.Core.Nodes.Combat;       // NEndTurnButton, NEnergyCounter, NCreature, NTargetManager
 using PokaYokeSpire.Combat;
+using PokaYokeSpire.Core;
 
 namespace PokaYokeSpire.Features;
 
@@ -43,8 +44,10 @@ internal static class EndTurnDamageFeature
     private static readonly Color RedTint = new Color(1.9f, 0.5f, 0.28f);
 
     private static void Postfix(NEndTurnButton __instance, CombatState combatState)
+        => Feature.Run("combat-orbs", () => true, () => Body(combatState));
+
+    private static void Body(CombatState combatState)
     {
-        try
         {
             if (Config.DisableAllOverlays || !Config.ShowIncomingGem)
             {
@@ -89,7 +92,6 @@ internal static class EndTurnDamageFeature
 
             if (!_logged) { _logged = true; MegaCrit.Sts2.Core.Logging.Log.Info($"[Poka-Yoke] combat orbs: incoming {_leftText}, offense {_rightText}"); }
         }
-        catch { /* fail-open: never disturb the end-turn button */ }
     }
 
     /// The right orb's text: hovered enemy's numbers if one is hovered, else the global totals.
@@ -206,8 +208,7 @@ internal static class EndTurnDamageFeature
         label.AddThemeConstantOverride("outline_size", 5);
         gem.AddChild(label);
 
-        counter.AddChild(gem);
-        UiSafety.Passthrough(gem);   // the duplicated orb art has child Controls that would eat clicks
+        Overlay.Attach(counter, name, () => gem);   // input-safe + idempotent by construction
         return new Orb { Gem = gem, Content = content, Label = label, IsLeft = isLeft };
     }
 
