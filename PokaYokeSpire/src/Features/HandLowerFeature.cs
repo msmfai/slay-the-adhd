@@ -14,6 +14,7 @@ namespace PokaYokeSpire.Features;
 internal static class HudLowerState
 {
     internal static float HandOffsetY;
+    internal static float HandOffsetX;   // whole-cluster horizontal shift (hud.groupOffsetX)
 }
 
 /// <summary>
@@ -29,8 +30,8 @@ internal static class HandLowerFeature
     {
         // ref __result can't be captured by a lambda, so the guarded body computes the offset and we
         // apply it here — still fail-open + auto-disable via the runner.
-        float dy = 0f;
-        Feature.Run("hand-lower", () => true, () => dy = HudLowerState.HandOffsetY);
-        if (dy != 0f) __result = new Vector2(__result.X, __result.Y + dy);
+        float dx = 0f, dy = 0f;
+        Feature.Run("hand-lower", () => true, () => { dy = HudLowerState.HandOffsetY; dx = HudLowerState.HandOffsetX; });
+        if (dx != 0f || dy != 0f) __result = new Vector2(__result.X + dx, __result.Y + dy);
     }
 }

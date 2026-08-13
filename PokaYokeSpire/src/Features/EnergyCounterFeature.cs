@@ -44,7 +44,8 @@ internal static class EnergyCounterFeature
             // Measure the energy-number text height and publish the hand RAISE for HandLowerFeature
             // (negative Y = up).
             float textH = MeasureTextHeight(__instance);
-            HudLowerState.HandOffsetY = Config.RaiseCombatHud ? -CombatHudLower.HandRaise(textH, Tunables.HandRaiseFrac) : 0f;
+            HudLowerState.HandOffsetY = (Config.RaiseCombatHud ? -CombatHudLower.HandRaise(textH, Tunables.HandRaiseFrac) : 0f) + Tunables.HudGroupOffsetY;
+            HudLowerState.HandOffsetX = Tunables.HudGroupOffsetX;
 
             // Overlays parented to the energy counter: keep them (re)built + positioned.
             RadialRelicsManager.UpdateAll(__instance);
@@ -64,8 +65,8 @@ internal static class EnergyCounterFeature
             Vector2 size = __instance.Size;
             float raise = Config.RaiseCombatHud ? CombatHudLower.CounterRaise(textH, Tunables.HandRaiseFrac, Tunables.CounterRaiseFracOfHand) : 0f;
             __instance.GlobalPosition = new Vector2(
-                viewport.X * 0.5f - size.X * 0.5f,
-                viewport.Y * Tunables.EnergyHeightFrac - size.Y * 0.5f - raise);
+                viewport.X * 0.5f - size.X * 0.5f + Tunables.HudGroupOffsetX,
+                viewport.Y * Tunables.EnergyHeightFrac - size.Y * 0.5f - raise + Tunables.HudGroupOffsetY);
         }
     }
 
