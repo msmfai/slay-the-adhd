@@ -212,6 +212,19 @@ public static class Tunables
     /// Parse a JSON string into the tunables (test seam + the reload path). Tolerant + never throws.
     public static void Load(string json) => Apply(json);
 
+    /// Restore every value to the last SAVED source (on-disk tunables.json, else the baked-in copy) —
+    /// the panel's "Reset" / undo. Bumps Revision so features rebuild. Never throws.
+    public static void ResetToSaved()
+    {
+        try
+        {
+            var p = DiskPath();
+            if (File.Exists(p)) { Apply(File.ReadAllText(p)); _lastWrite = File.GetLastWriteTimeUtc(p); }
+            else { var baked = EmbeddedJson(); if (baked != null) Apply(baked); }
+        }
+        catch (Exception e) { DebugLog.Error("Tunables.ResetToSaved", e); }
+    }
+
     private static string? EmbeddedJson()
     {
         try
