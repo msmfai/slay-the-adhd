@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.Entities.Creatures; // Creature
 using MegaCrit.Sts2.Core.Models;             // CardModel
 using MegaCrit.Sts2.Core.Nodes.Combat;       // NCardPlay, NCreature, NTargetManager
 using PokaYokeSpire.Combat;
+using PokaYokeSpire.Core;
 
 namespace PokaYokeSpire.Features;
 
@@ -22,6 +23,7 @@ namespace PokaYokeSpire.Features;
 internal static class CardTargetPreviewFeature
 {
     private static void Postfix(NCardPlay __instance, NCreature creature)
+        => Feature.Run("card-target-preview", () => true, () =>
     {
         try
         {
@@ -30,13 +32,14 @@ internal static class CardTargetPreviewFeature
             CardPreviewOverlay.SetTarget(card, creature?.Entity);
         }
         catch { CardPreviewOverlay.SetTarget(null, null); }
-    }
+    });
 }
 
 [HarmonyPatch(typeof(NCardPlay), "OnCreatureUnhover")]
 internal static class CardTargetPreviewHideFeature
 {
-    private static void Postfix() { try { CardPreviewOverlay.SetTarget(null, null); } catch { } }
+    private static void Postfix()
+        => Feature.Run("card-target-preview-hide", () => true, () => { try { CardPreviewOverlay.SetTarget(null, null); } catch { } });
 }
 
 internal static class CardPreviewOverlay
@@ -139,6 +142,7 @@ internal static class CardPreviewOverlay
         _layer.AddChild(_panel);
 
         _layer.AddChild(new PreviewFollower());
+        UiSafety.Passthrough(_layer);   // input-safe by construction (invariant 1)
     }
 }
 
