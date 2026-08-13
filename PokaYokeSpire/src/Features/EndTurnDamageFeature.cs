@@ -151,8 +151,11 @@ internal static class EndTurnDamageFeature
             {
                 // reconstruct the one field the lifecycle needs (Duplicate skips the private _player)
                 Traverse.Create(clone).Field("_player").SetValue(Traverse.Create(counter).Field("_player").GetValue());
-                clone.Scale = new Vector2(scale, scale);
-                clone.Position = pos;
+                clone.Scale = new Vector2(scale, scale);        // exactly 2/3 the original
+                clone.PivotOffset = counter.Size * 0.5f;        // scale + anchor around the gem's own MIDDLE
+                // position relative to the CENTRAL gem's centre: counter half + gap + this gem's half
+                float offX = counterW * 0.5f + gap + counterW * scale * 0.5f;
+                clone.Position = new Vector2(isLeft ? -offX : offX, 0f);
                 if (Overlay.Attach(counter, name, () => clone) != null)   // AddChild -> _Ready/_EnterTree run
                 {
                     var layers = Traverse.Create(clone).Field("_layers").GetValue<Control>();
