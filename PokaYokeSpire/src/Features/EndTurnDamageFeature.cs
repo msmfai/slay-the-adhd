@@ -69,47 +69,43 @@ internal static class EndTurnDamageFeature
             { BuildOrbs(counter); _gemFor = counter; }
             if (_left == null || _right == null) return;
 
-            // ONE forward turn-simulator drives both gems: it plays out every reachable sequence of the
-            // hand (path-dependence memoized, node-bounded) and reports the max damage you can do and the
-            // min HP you can lose. x (defense do-nothing) stays exact via the game's own incoming hook.
-            var sim = TurnSimReader.Read(combatState);
-            var p = IncomingDamage.Compute(combatState);
-            int take = p.Valid ? p.NetHpLoss : 0;
-
-            if (sim != null)
-            {
-                var r = TurnSim.Solve(sim.Player, sim.Enemies, sim.Hand, nodeCap: 40000);
-                var sched = ScheduledDamage.PerEnemy(combatState, sim.EnemyRefs);
-                int schedTotal = 0;
-                foreach (var s in sched) schedTotal += s;
-                _xTotal = r.MaxDamage;
-                _yTotal = _xTotal + schedTotal;
-                _xPerEnemy = r.MaxPerEnemy;
-                _schedPerEnemy = sched;
-                _enemyRefs = sim.EnemyRefs;
-                int minTake = System.Math.Min(take, r.MinHpLost);   // y ≤ x (playing only helps)
-                _leftText = $"{take} → {minTake}";
-            }
-            else
-            {
-                _xTotal = 0; _yTotal = 0; _xPerEnemy = System.Array.Empty<int>(); _schedPerEnemy = System.Array.Empty<int>(); _enemyRefs = new();
-                _leftText = $"{take} → {take}";
-            }
-
             WireHover();
-            _rightText = RightText();
-            RecomputeGlow();
-            UpdateOrbs();
             _left.Gem.Visible = _right.Gem.Visible = true;
-
-            if (Core.DebugLog.Enabled)
-                Core.DebugLog.Debug($"combat orbs: incoming '{_leftText}', offense '{_rightText}' (x/enemy [{string.Join(",", _xPerEnemy)}], sched [{string.Join(",", _schedPerEnemy)}], hover={(_hoveredEnemy != null)})");
+            // The sim runs OFF-THREAD (TurnSimDriverFeature); ApplyLatest — called each frame from the
+            // energy counter's _Process — picks up its cached result and updates the gems' text.
         }
     }
 
-    // read by the lethal-gem-glow render feature
+    private static long _appliedGen = long.MinValue;
+
+    /// Game-thread, per-frame: apply the newest off-thread sim result to the gems' text (cheap no-op when
+    /// nothing new). Hover changes update the offense text separately via SetHover.
+    internal static void ApplyLatest()
+    {
+        if (_left?.Gem == null || !GodotObject.IsInstanceValid(_left.Gem)) return;
+        var o = TurnSimDriverFeature.Latest;
+        if (o == null || o.Gen == _appliedGen) return;
+        _appliedGen = o.Gen;
+
+        if (!o.HasSim || o.Result.MaxPerEnemy == null || o.EnemyRefs == null)
+        {
+            _xTotal = 0; _yTotal = 0; _xPerEnemy = System.Array.Empty<int>(); _schedPerEnemy = System.Array.Empty<int>(); _enemyRefs = new();
+            _leftText = $"{o.DoNothingIncoming} → {o.DoNothingIncoming}";
+        }
+        else
+        {
+            int schedTotal = 0; foreach (var s in o.Scheduled) schedTotal += s;
+            _xTotal = o.Result.MaxDamage; _yTotal = _xTotal + schedTotal;
+            _xPerEnemy = o.Result.MaxPerEnemy; _schedPerEnemy = o.Scheduled; _enemyRefs = o.EnemyRefs;
+            int minTake = System.Math.Min(o.DoNothingIncoming, o.Result.MinHpLost);   // y ≤ x
+            _leftText = $"{o.DoNothingIncoming} → {minTake}";
+        }
+        _rightText = RightText();
+        UpdateOrbs();
+    }
+
+    /// The enemy currently hovered (null = none). Read by the lethal-gem glow to scope its check.
     internal static Creature? HoveredEnemy => _hoveredEnemy;
-    internal static bool HoveredEnemyLethal;
 
     /// The offense orb's text — "x + d" : x = max damage you can do BEFORE the enemies act (cards this
     /// turn), d = the damage that lands on its own before your NEXT turn (current scheduled damage —
@@ -127,22 +123,6 @@ internal static class EndTurnDamageFeature
                     break;
                 }
         return $"{x} + {sched}";
-    }
-
-    /// Green-glow decision: when hovering an enemy, glow if your damage to it (cards + scheduled) can
-    /// kill it. (No hover falls back to the kill-all glow in the render feature.)
-    private static void RecomputeGlow()
-    {
-        bool glow = false;
-        if (_hoveredEnemy != null)
-            for (int i = 0; i < _enemyRefs.Count && i < _xPerEnemy.Length && i < _schedPerEnemy.Length; i++)
-                if (ReferenceEquals(_enemyRefs[i], _hoveredEnemy))
-                {
-                    int hp = TryHp(_enemyRefs[i]);
-                    glow = hp > 0 && (_xPerEnemy[i] + _schedPerEnemy[i]) >= hp;
-                    break;
-                }
-        HoveredEnemyLethal = glow;
     }
 
     /// Update both gems' text (fixed size; the MegaLabel auto-sizes its font exactly like the real
@@ -166,6 +146,7 @@ internal static class EndTurnDamageFeature
         _orbNatural = counter.Size.X > 1f ? counter.Size.X : 100f;
         _left = BuildOrb(counter, "PokaYokeIncomingGem", "gem_incoming", isLeft: true, Tunables.GemBlueTint, () => Tunables.IncomingTip);
         _right = BuildOrb(counter, "PokaYokeOffenseGem", "gem_offense", isLeft: false, Tunables.GemRedTint, () => Tunables.OffenseTip);
+        _appliedGen = long.MinValue;   // force ApplyLatest to re-apply the current result to the fresh gems
     }
 
     /// Live-tuning callback: tunables.json changed — rebuild both gems with the new values and refresh
@@ -343,13 +324,21 @@ internal static class EndTurnDamageFeature
         {
             _hoveredEnemy = e;
             _rightText = RightText();
-            RecomputeGlow();
             if (_gemFor != null && GodotObject.IsInstanceValid(_gemFor)) UpdateOrbs();
         }
         catch { }
     }
 
     private static void OnCreatureUnhovered(NCreature c) => SetHover(null);
+}
+
+/// Per-frame apply of the off-thread sim result to the combat orbs' text (invariant 5: reads a cached
+/// value only, never runs the solver). Fail-open + input-safe via the runner.
+[HarmonyPatch(typeof(NEnergyCounter), "_Process")]
+internal static class CombatOrbsApplyFeature
+{
+    private static void Postfix()
+        => Feature.Run("combat-orbs-apply", () => !Config.DisableAllOverlays && Config.ShowIncomingGem, EndTurnDamageFeature.ApplyLatest);
 }
 
 /// Spins a cloned _rotationLayers exactly like NEnergyCounter._Process (each child faster than the

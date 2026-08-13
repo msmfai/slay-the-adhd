@@ -64,6 +64,7 @@ public static class TurnSim
         public int MaxDamage;
         public int[] MaxPerEnemy;
         public int MinHpLost;
+        public bool CanKillAll;   // is there ONE play sequence that leaves every enemy dead this turn?
     }
 
     // ── damage / block math (STS pipeline: (base + Σadditive) × Πmultiplicative, floored ONCE) ──
@@ -118,14 +119,17 @@ public static class TurnSim
     {
         // evaluate THIS reachable state (you can stop playing at any point)
         int totalDealt = 0;
+        bool allDead = true;
         for (int i = 0; i < enemies.Length; i++)
         {
             int dealt = initialHp[i] - (enemies[i].Hp < 0 ? 0 : enemies[i].Hp);
             if (dealt < 0) dealt = 0;
             if (dealt > best.MaxPerEnemy[i]) best.MaxPerEnemy[i] = dealt;
             totalDealt += dealt;
+            if (enemies[i].Alive) allDead = false;
         }
         if (totalDealt > best.MaxDamage) best.MaxDamage = totalDealt;
+        if (allDead) best.CanKillAll = true;   // this single sequence clears the room
         int hpLost = HpLost(p, enemies);
         if (hpLost < best.MinHpLost) best.MinHpLost = hpLost;
 
