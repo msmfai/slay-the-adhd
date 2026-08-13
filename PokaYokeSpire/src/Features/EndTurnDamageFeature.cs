@@ -129,9 +129,16 @@ internal static class EndTurnDamageFeature
         if (_left?.Gem != null && GodotObject.IsInstanceValid(_left.Gem)) _left.Gem.QueueFree();
         if (_right?.Gem != null && GodotObject.IsInstanceValid(_right.Gem)) _right.Gem.QueueFree();
         _orbNatural = counter.Size.X > 1f ? counter.Size.X : 100f;
-        _left = BuildOrb(counter, "PokaYokeIncomingGem", isLeft: true, BlueTint);
-        _right = BuildOrb(counter, "PokaYokeOffenseGem", isLeft: false, RedTint);
+        _left = BuildOrb(counter, "PokaYokeIncomingGem", isLeft: true, BlueTint, IncomingTip);
+        _right = BuildOrb(counter, "PokaYokeOffenseGem", isLeft: false, RedTint, OffenseTip);
     }
+
+    private const string IncomingTip =
+        "Incoming damage\nx / y  —  the HP you'll actually lose this turn if you end now (after block)\n" +
+        "over the raw damage the enemies are outputting.";
+    private const string OffenseTip =
+        "Your damage\nx / y  —  the most HP you can deal this turn over that plus damage that lands before\n" +
+        "your next play (poison, start-of-turn effects, …). Hover an enemy to scope both numbers to it.";
 
     /// One-time dump of the energy counter's ENTIRE subtree (node names, types, visibility, transforms)
     /// so the real geometry & structure of the orb art can be read from a log instead of guessed — the
@@ -200,9 +207,10 @@ internal static class EndTurnDamageFeature
     /// NEnergyCounter script: it's subscribed to your combat/energy events, so a clone reacts when you
     /// attack (vanishes), auto-fits the font per digit-count, and its %-unique-name spin lookups break
     /// on Duplicate(). Copying the pieces gets the same look with none of that. Guarded + input-safe.
-    private static Orb BuildOrb(NEnergyCounter counter, string name, bool isLeft, Color tint)
+    private static Orb BuildOrb(NEnergyCounter counter, string name, bool isLeft, Color tint, string tooltip)
     {
         float ch = counter.Size.Y > 1f ? counter.Size.Y : _orbNatural;
+        const float fontFrac = 0.20f;   // ⅔ of the previous 0.30 — smaller number in each gem
 
         // The gem must carry the counter's SIZE: the orb art (Layers/RotationLayers) is anchored
         // full-rect, so in a zero-size parent it collapses to 0×0 and draws nothing. Giving the gem the
@@ -224,7 +232,7 @@ internal static class EndTurnDamageFeature
             && srcLabel.Duplicate() is MegaLabel ml)
         {
             ml.AutoSizeEnabled = false;                                    // fixed font, no per-digit resize
-            ml.AddThemeFontSizeOverride("font_size", (int)(ch * 0.30f));
+            ml.AddThemeFontSizeOverride("font_size", (int)(ch * fontFrac));
             ml.SelfModulate = Colors.White;
             ml.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);  // fill the gem…
             ml.HorizontalAlignment = HorizontalAlignment.Center;           // …and centre the number on the orb
@@ -237,7 +245,7 @@ internal static class EndTurnDamageFeature
             Core.DebugLog.Warn($"gem '{name}': could not clone the counter's MegaLabel — using a plain label (font may differ)");
             var lbl = new Label { Size = new Vector2(ch, ch), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MouseFilter = Control.MouseFilterEnum.Ignore };
             var ff = ThemeDB.Singleton?.FallbackFont; if (ff != null) lbl.AddThemeFontOverride("font", ff);
-            lbl.AddThemeFontSizeOverride("font_size", (int)(ch * 0.28f));
+            lbl.AddThemeFontSizeOverride("font_size", (int)(ch * fontFrac));
             lbl.AddThemeColorOverride("font_color", Colors.White);
             gem.AddChild(lbl);
             setText = txt => { try { lbl.Text = txt; } catch { } };
@@ -260,6 +268,7 @@ internal static class EndTurnDamageFeature
         }
 
         Overlay.Attach(counter, name, () => gem);
+        Overlay.SetTooltip(gem, tooltip);   // hover-only (Pass) — informative but never eats a click
         return new Orb { Gem = gem, SetText = setText, IsLeft = isLeft };
     }
 
