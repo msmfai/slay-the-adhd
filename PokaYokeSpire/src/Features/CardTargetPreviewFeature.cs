@@ -87,8 +87,9 @@ internal static class CardPreviewOverlay
         Vector2 mouse = _panel.GetViewport().GetMousePosition();
         Vector2 size = _panel.Size;
         Vector2 vp = _panel.GetViewportRect().Size;
-        float x = mouse.X + 24f, y = mouse.Y - size.Y - 16f;
-        if (x + size.X > vp.X) x = mouse.X - size.X - 24f;
+        float ox = Core.Tunables.CardPreviewOffsetX, oy = Core.Tunables.CardPreviewOffsetY;
+        float x = mouse.X + ox, y = mouse.Y - size.Y - oy;
+        if (x + size.X > vp.X) x = mouse.X - size.X - ox;
         if (y < 0) y = mouse.Y + 24f;
         _panel.Position = new Vector2(Mathf.Max(0, x), Mathf.Max(0, y));
     }

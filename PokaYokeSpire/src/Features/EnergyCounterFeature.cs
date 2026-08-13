@@ -22,7 +22,7 @@ internal static class EnergyCounterFeature
     internal static NEnergyCounter? Instance;
 
     private static Vector2? _manualPos;   // set when the counter is ctrl-dragged
-    private static double _lastHeight = double.NaN;
+    private static float _lastHeight = float.NaN;
 
     private static bool _loggedActive;
 
@@ -44,7 +44,7 @@ internal static class EnergyCounterFeature
             // Measure the energy-number text height and publish the hand RAISE for HandLowerFeature
             // (negative Y = up).
             float textH = MeasureTextHeight(__instance);
-            HudLowerState.HandOffsetY = Config.RaiseCombatHud ? -CombatHudLower.HandRaise(textH) : 0f;
+            HudLowerState.HandOffsetY = Config.RaiseCombatHud ? -CombatHudLower.HandRaise(textH, Tunables.HandRaiseFrac) : 0f;
 
             // Overlays parented to the energy counter: keep them (re)built + positioned.
             RadialRelicsManager.UpdateAll(__instance);
@@ -53,7 +53,7 @@ internal static class EnergyCounterFeature
             if (!Config.CenterEnergyCounter) return;
 
             // Moving the height slider cancels any dragged position.
-            if (Config.EnergyCounterHeight != _lastHeight) { _manualPos = null; _lastHeight = Config.EnergyCounterHeight; }
+            if (Tunables.EnergyHeightFrac != _lastHeight) { _manualPos = null; _lastHeight = Tunables.EnergyHeightFrac; }
 
             // While being ctrl-dragged, let the drag own the position (and remember it).
             if (ReferenceEquals(DragHandler.Dragged, __instance)) { _manualPos = __instance.GlobalPosition; return; }
@@ -62,10 +62,10 @@ internal static class EnergyCounterFeature
 
             Vector2 viewport = __instance.GetViewportRect().Size;
             Vector2 size = __instance.Size;
-            float raise = Config.RaiseCombatHud ? CombatHudLower.CounterRaise(textH) : 0f;
+            float raise = Config.RaiseCombatHud ? CombatHudLower.CounterRaise(textH, Tunables.HandRaiseFrac, Tunables.CounterRaiseFracOfHand) : 0f;
             __instance.GlobalPosition = new Vector2(
                 viewport.X * 0.5f - size.X * 0.5f,
-                viewport.Y * (float)Config.EnergyCounterHeight - size.Y * 0.5f - raise);
+                viewport.Y * Tunables.EnergyHeightFrac - size.Y * 0.5f - raise);
         }
     }
 

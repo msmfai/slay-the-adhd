@@ -80,6 +80,32 @@ public class TunablesTests
     }
 
     [Fact]
+    public void AllMigratedSections_RoundTrip_ThroughToJson()
+    {
+        Tunables.Load(@"{
+          ""energy"": { ""heightFrac"": 0.66 },
+          ""radial"": { ""radius"": 175.0 },
+          ""reward"": { ""rewardRaise"": 80.0, ""deckRaiseFracOfReward"": 0.4 },
+          ""deckFan"": { ""gap"": 20.0, ""minVisibleStep"": 30.0 },
+          ""sidePanel"": { ""marginFrac"": 0.03 },
+          ""cardPreview"": { ""cursorOffsetX"": 40.0, ""cursorOffsetY"": 10.0 }
+        }");
+        string json = Tunables.ToJson();
+        Tunables.Load("{ \"energy\": { \"heightFrac\": 0.99 } }");   // perturb
+        Tunables.Load(json);                                         // restore from serialized form
+
+        Assert.Equal(0.66f, Tunables.EnergyHeightFrac, 3);
+        Assert.Equal(175f, Tunables.RadialRadius, 3);
+        Assert.Equal(80f, Tunables.RewardRaise, 3);
+        Assert.Equal(0.4f, Tunables.DeckRaiseFracOfReward, 3);
+        Assert.Equal(20f, Tunables.DeckFanGap, 3);
+        Assert.Equal(30f, Tunables.DeckMinVisibleStep, 3);
+        Assert.Equal(0.03f, Tunables.SidePanelMarginFrac, 3);
+        Assert.Equal(40f, Tunables.CardPreviewOffsetX, 3);
+        Assert.Equal(10f, Tunables.CardPreviewOffsetY, 3);
+    }
+
+    [Fact]
     public void WriteTo_ThenLoad_PreservesValues()
     {
         Tunables.Load(Full);
@@ -97,7 +123,10 @@ public class TunablesTests
     {
         var paths = Tunables.Knobs.Select(k => k.Path).ToHashSet();
         foreach (var expected in new[] { "gem.fontFrac", "gem.gap", "gem.scale",
-                                         "gem.blueTint.r", "gem.redTint.b", "hud.handRaiseFrac" })
+                                         "gem.blueTint.r", "gem.redTint.b", "hud.handRaiseFrac",
+                                         "energy.heightFrac", "radial.radius", "reward.rewardRaise",
+                                         "reward.deckRaiseFracOfReward", "deckFan.gap", "deckFan.minVisibleStep",
+                                         "sidePanel.marginFrac", "cardPreview.cursorOffsetX", "cardPreview.cursorOffsetY" })
             Assert.Contains(expected, paths);
 
         var gap = Tunables.Knobs.First(k => k.Path == "gem.gap");

@@ -14,7 +14,11 @@ public static class CombatHudLower
 
     /// Px to raise the resting hand by, given the energy-text height.
     public static float HandRaise(float textHeight) => textHeight * CardRaiseFrac;
+    /// As above but with a live/tunable fraction.
+    public static float HandRaise(float textHeight, float handFrac) => textHeight * handFrac;
 
     /// Px to raise the energy counter by (a third of the hand raise).
     public static float CounterRaise(float textHeight) => textHeight * CounterRaiseFrac;
+    /// As above but with live/tunable fractions (counter raise = handFrac × counterOfHand × textHeight).
+    public static float CounterRaise(float textHeight, float handFrac, float counterOfHand) => textHeight * handFrac * counterOfHand;
 }
