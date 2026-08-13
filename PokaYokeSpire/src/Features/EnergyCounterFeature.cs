@@ -1,6 +1,7 @@
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Nodes.Combat; // NEnergyCounter
+using PokaYokeSpire.Core;
 using PokaYokeSpire.Spatial;           // CombatHudLower
 
 namespace PokaYokeSpire.Features;
@@ -26,10 +27,12 @@ internal static class EnergyCounterFeature
     private static bool _loggedActive;
 
     private static void Postfix(NEnergyCounter __instance)
+        => Feature.Run("energy-counter", () => true, () => Body(__instance));
+
+    // Runs every frame via the guarded runner (fail-open + auto-disable): an exception here can never
+    // break the energy counter's own _Process.
+    private static void Body(NEnergyCounter __instance)
     {
-        // FAIL-OPEN: this runs every frame; an exception here (e.g. another mod changed the
-        // counter's structure) must never break the energy counter's own _Process.
-        try
         {
             Instance = __instance;
             if (!_loggedActive)
@@ -64,7 +67,6 @@ internal static class EnergyCounterFeature
                 viewport.X * 0.5f - size.X * 0.5f,
                 viewport.Y * (float)Config.EnergyCounterHeight - size.Y * 0.5f - raise);
         }
-        catch { /* fail-open: never disturb the counter's own processing */ }
     }
 
     /// Height of the energy number ("Label" MegaLabel child), clamped to a sane range; falls back if
