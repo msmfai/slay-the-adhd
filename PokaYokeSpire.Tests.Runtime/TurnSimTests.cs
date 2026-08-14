@@ -68,11 +68,12 @@ public class TurnSimTests
     }
 
     [Fact]
-    public void Defense_KillingTheAttacker_RemovesItsDamage()
+    public void Defense_KillingTheAttacker_IsNotCredited()
     {
-        // one enemy attacks for 20 but has only 6 HP; killing it (Strike 6) drops incoming to 0.
+        // defense is pure MITIGATION: even though Strike 6 would kill the 6-HP attacker, that's offense,
+        // not defense — so the defense min still counts its full 20 incoming (a Strike isn't defense).
         var r = TurnSim.Solve(P(1), new[] { E(6, intent: 20), E(100) }, new List<Card> { Strike(6) });
-        Assert.Equal(0, r.MinHpLost);
+        Assert.Equal(20, r.MinHpLost);
     }
 
     [Fact]
