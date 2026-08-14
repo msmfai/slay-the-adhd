@@ -107,21 +107,22 @@ internal static class EndTurnDamageFeature
     /// The enemy currently hovered (null = none). Read by the lethal-gem glow to scope its check.
     internal static Creature? HoveredEnemy => _hoveredEnemy;
 
-    /// The offense orb's text — "x + d" : x = max damage you can do BEFORE the enemies act (cards this
-    /// turn), d = the damage that lands on its own before your NEXT turn (current scheduled damage —
-    /// existing poison etc., NOT hypothetical extra you could set up). Scoped to the hovered enemy if one
-    /// is hovered, else totals across all enemies.
+    /// The offense orb's text — "x + d" : x = max damage you can do to a SINGLE enemy before the enemies
+    /// act (each enemy solved individually, incl. its share of AOE), d = the damage that lands on its own
+    /// before your NEXT turn (current scheduled damage — poison etc.). Hovering scopes to that enemy;
+    /// otherwise it's the best of the per-enemy solutions (the most you can do to any one target).
     private static string RightText()
     {
-        int x = _xTotal, sched = _yTotal - _xTotal;
+        int x = 0, sched = 0;
         if (_hoveredEnemy != null)
+        {
             for (int i = 0; i < _enemyRefs.Count && i < _xPerEnemy.Length && i < _schedPerEnemy.Length; i++)
                 if (ReferenceEquals(_enemyRefs[i], _hoveredEnemy))
-                {
-                    x = _xPerEnemy[i];
-                    sched = _schedPerEnemy[i];
-                    break;
-                }
+                    return $"{_xPerEnemy[i]} + {_schedPerEnemy[i]}";
+            return "0 + 0";
+        }
+        for (int i = 0; i < _xPerEnemy.Length && i < _schedPerEnemy.Length; i++)
+            if (_xPerEnemy[i] > x) { x = _xPerEnemy[i]; sched = _schedPerEnemy[i]; }
         return $"{x} + {sched}";
     }
 
