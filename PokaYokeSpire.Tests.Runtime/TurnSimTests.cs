@@ -157,6 +157,16 @@ public class TurnSimTests
     }
 
     [Fact]
+    public void PlatingFromCard_ReducesIncomingThisTurn()
+    {
+        // Eternal Armor applies Plating 7 → 7 block at end of THIS turn (Unpowered, no Dex/Frail).
+        var eternalArmor = new Card { Name = "EternalArmor", Cost = 3, FlatBlock = 7 };
+        var p = new TurnSim.Player { Energy = 3, Dexterity = 3, Frail = 1 };   // Dex/Frail must NOT touch it
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 20) }, new List<Card> { eternalArmor });
+        Assert.Equal(13, r.MinHpLost);   // 20 − 7 flat plating
+    }
+
+    [Fact]
     public void DoNothing_IsAlwaysAnOption()
     {
         // with no useful cards, offense is 0 and you take the full hit.
