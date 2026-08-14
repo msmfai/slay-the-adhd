@@ -97,12 +97,7 @@ internal static class EndTurnDamageFeature
             int schedTotal = 0; foreach (var s in o.Scheduled) schedTotal += s;
             _xTotal = o.Result.MaxDamage; _yTotal = _xTotal + schedTotal;
             _xPerEnemy = o.Result.MaxPerEnemy; _schedPerEnemy = o.Scheduled; _enemyRefs = o.EnemyRefs;
-            // x is the EXACT do-nothing incoming (game hook); the sim gives the achievable mitigation as a
-            // reduction from ITS own baseline, so y = x − reduction stays consistent with x (no drift).
-            int reduction = o.Result.BaselineHpLost - o.Result.MinHpLost;
-            if (reduction < 0) reduction = 0;
-            int minTake = o.DoNothingIncoming - reduction;
-            if (minTake < 0) minTake = 0;
+            int minTake = System.Math.Min(o.DoNothingIncoming, o.Result.MinHpLost);   // y ≤ x
             _leftText = $"{o.DoNothingIncoming} → {minTake}";
         }
         _rightText = RightText();

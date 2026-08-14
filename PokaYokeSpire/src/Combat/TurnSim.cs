@@ -70,7 +70,6 @@ public static class TurnSim
         public bool CanKillAll;   // is there ONE play sequence that leaves every enemy dead this turn?
         public int Nodes;         // states expanded (for diagnostics); == cap ⇒ truncated (conservative)
         public bool Truncated;    // true if the node budget was hit before the search finished
-        public int BaselineHpLost;// HP lost with NO plays (the sim's do-nothing) — for anchoring the gem
     }
 
     // ── damage / block math (STS pipeline: (base + Σadditive) × Πmultiplicative, floored ONCE) ──
@@ -118,8 +117,7 @@ public static class TurnSim
 
         int[] cardClass = ClassifyCards(hand);   // identical cards → same class (played in one canonical order)
 
-        int baseline = HpLost(player, enemies);
-        var best = new Result { MaxDamage = 0, MaxPerEnemy = new int[n], MinHpLost = baseline, BaselineHpLost = baseline };
+        var best = new Result { MaxDamage = 0, MaxPerEnemy = new int[n], MinHpLost = HpLost(player, enemies) };
         var visited = new HashSet<string>();
         int nodes = 0;
         ulong fullMask = hand.Count >= 64 ? ulong.MaxValue : (1UL << hand.Count) - 1;
