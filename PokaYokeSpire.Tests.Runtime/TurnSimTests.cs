@@ -129,6 +129,35 @@ public class TurnSimTests
     }
 
     [Fact]
+    public void HardToKill_CapsEachHit_NotPerTurnTotal()
+    {
+        // Exoskeleton's Hard to Kill 9: each hit is capped at 9 (no depletion). Two big Strikes → 9+9=18,
+        // NOT capped to a single 9 (that's Hardened Shell). A multi-hit under 9 per hit is unaffected.
+        var exo = new TurnSim.Enemy { Hp = 100, PerHitCap = 9 };
+        var big = TurnSim.Solve(P(2), new[] { exo }, new List<Card> { Strike(30), Strike(30) });
+        Assert.Equal(18, big.MaxDamage);
+
+        var small = new TurnSim.Enemy { Hp = 100, PerHitCap = 9 };
+        var twin = new Card { Name = "TwinStrike", Cost = 1, Damage = 5, Hits = 2, AttackTarget = Tgt.OneEnemy };
+        var r = TurnSim.Solve(P(1), new[] { small }, new List<Card> { twin });
+        Assert.Equal(10, r.MaxDamage);   // 5 and 5 both under the 9 cap
+    }
+
+    [Fact]
+    public void DamageTakenPct_HalvesDamage_AndStacksAfterVulnerable()
+    {
+        // Soar/Flutter/Guarded: enemy takes 50%. Strike 10 → 5.
+        var flier = new TurnSim.Enemy { Hp = 100, DamageTakenPct = 50 };
+        var r = TurnSim.Solve(P(1), new[] { flier }, new List<Card> { Strike(10) });
+        Assert.Equal(5, r.MaxDamage);
+
+        // With Vulnerable the ×1.5 applies first (in Atk), then the ×0.5: 10 → 15 → 7.
+        var vf = new TurnSim.Enemy { Hp = 100, Vulnerable = 1, DamageTakenPct = 50 };
+        var r2 = TurnSim.Solve(P(1), new[] { vf }, new List<Card> { Strike(10) });
+        Assert.Equal(7, r2.MaxDamage);
+    }
+
+    [Fact]
     public void Whirlwind_XCost_HitsAllEnemiesEnergyTimes()
     {
         var whirl = new Card { Name = "Whirlwind", Cost = 0, XCost = true, Damage = 5, AttackTarget = Tgt.AllEnemies };
@@ -164,6 +193,207 @@ public class TurnSimTests
         var p = new TurnSim.Player { Energy = 3, Dexterity = 3, Frail = 1 };   // Dex/Frail must NOT touch it
         var r = TurnSim.Solve(p, new[] { E(100, intent: 20) }, new List<Card> { eternalArmor });
         Assert.Equal(13, r.MinHpLost);   // 20 − 7 flat plating
+    }
+
+    [Fact]
+    public void Vigor_BoostsOnlyYourNextAttack_ThenConsumed()
+    {
+        // Vigor 3: first Strike does 6+3=9, Vigor is spent, second Strike does 6 → 15 (not 18).
+        var p = new TurnSim.Player { Energy = 2, Vigor = 3 };
+        var r = TurnSim.Solve(p, new[] { E(100) }, new List<Card> { Strike(6), Strike(6) });
+        Assert.Equal(15, r.MaxDamage);
+    }
+
+    [Fact]
+    public void EnemyStrengthLoss_SoftensIncoming()
+    {
+        // Piercing Wail-style: −6 Strength on the attacker → its 10 intent lands as 4.
+        var wail = new Card { Name = "PiercingWail", Cost = 1, EnemyStrengthLoss = 6, EStrTarget = Tgt.OneEnemy };
+        var r = TurnSim.Solve(P(1), new[] { E(100, intent: 10) }, new List<Card> { wail });
+        Assert.Equal(4, r.MinHpLost);
+    }
+
+    [Fact]
+    public void DexterityGain_BoostsLaterBlockCardsThisTurn()
+    {
+        // Footwork (+2 Dex) then Defend(5) → 7 block. 20 incoming leaves 13.
+        var footwork = new Card { Name = "Footwork", Cost = 1, DexterityGain = 2 };
+        var r = TurnSim.Solve(P(2), new[] { E(100, intent: 20) }, new List<Card> { footwork, Defend(5) });
+        Assert.Equal(13, r.MinHpLost);
+    }
+
+    [Fact]
+    public void Entrench_DoublesCurrentBlock()
+    {
+        // Defend(5) → 5, Entrench → 10. Playing Entrench first (doubling 0) is dominated; min = 10.
+        var entrench = new Card { Name = "Entrench", Cost = 1, Dynamic = Dyn.Entrench };
+        var r = TurnSim.Solve(P(2), new[] { E(100, intent: 20) }, new List<Card> { Defend(5), entrench });
+        Assert.Equal(10, r.MinHpLost);
+    }
+
+    [Fact]
+    public void Rage_ActivePower_GainsBlockPerAttackPlayed()
+    {
+        // Rage already active (3 block per attack): two Strikes → 6 block. 20 incoming leaves 14.
+        var p = new TurnSim.Player { Energy = 2, BlockPerAttack = 3 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 20) }, new List<Card> { Strike(6), Strike(6) });
+        Assert.Equal(14, r.MinHpLost);
+    }
+
+    [Fact]
+    public void Rage_CardThenAttacks_ArmsBlockPerAttack()
+    {
+        // Play Rage (0-cost skill, arms 3 block/attack) then two Strikes → 6 block; 20 incoming leaves 14.
+        var rage = new Card { Name = "Rage", Cost = 0, GrantBlockPerAttack = 3 };
+        var r = TurnSim.Solve(P(2), new[] { E(100, intent: 20) }, new List<Card> { rage, Strike(6), Strike(6) });
+        Assert.Equal(14, r.MinHpLost);
+    }
+
+    [Fact]
+    public void EvilEye_NoExhaust_GivesBaseBlock()
+    {
+        var evilEye = new Card { Name = "EvilEye", Cost = 1, Block = 8, DoubleBlockIfExhausted = true };
+        var r = TurnSim.Solve(P(1), new[] { E(100, intent: 20) }, new List<Card> { evilEye });
+        Assert.Equal(12, r.MinHpLost);   // 20 − 8
+    }
+
+    [Fact]
+    public void EvilEye_DoublesWhenAnExhaustAttackIsPlayedFirst()
+    {
+        // The exhaust trigger is an ATTACK, so Evil Eye (a non-attack) must be played AFTER it — the case
+        // the T3 setup-before-payload prune would normally forbid. Relaxing it lets the double be found.
+        var exStrike = new Card { Name = "ExhaustStrike", Cost = 1, Damage = 6, AttackTarget = Tgt.OneEnemy, Exhausts = true };
+        var evilEye = new Card { Name = "EvilEye", Cost = 1, Block = 8, DoubleBlockIfExhausted = true };
+        var r = TurnSim.Solve(P(2), new[] { E(100, intent: 20) }, new List<Card> { exStrike, evilEye });
+        Assert.Equal(4, r.MinHpLost);    // 20 − 16 (doubled)
+    }
+
+    [Fact]
+    public void EvilEye_DoublesWhenExhaustAlreadyHappenedThisTurn()
+    {
+        var p = new TurnSim.Player { Energy = 1, ExhaustedThisTurn = true };   // seeded from history
+        var evilEye = new Card { Name = "EvilEye", Cost = 1, Block = 8, DoubleBlockIfExhausted = true };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 20) }, new List<Card> { evilEye });
+        Assert.Equal(4, r.MinHpLost);    // 20 − 16
+    }
+
+    [Fact]
+    public void TungstenRod_ReducesEachHitByOne()
+    {
+        // 8 damage ×2 hits, −1 per hit → 7 ×2 = 14 (not 16).
+        var p = new TurnSim.Player { Energy = 0, HpLossReductionPerHit = 1 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 8, hits: 2) }, new List<Card>());
+        Assert.Equal(14, r.MinHpLost);
+    }
+
+    [Fact]
+    public void BeatingRemnant_CapsTurnHpLoss()
+    {
+        var p = new TurnSim.Player { Energy = 0, MaxHpLossThisTurn = 20 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 50) }, new List<Card>());
+        Assert.Equal(20, r.MinHpLost);
+    }
+
+    [Fact]
+    public void SelfDamageOnPlay_AddsUnblockableHpLoss()
+    {
+        // Blood Wall: −2 HP (unblockable) but +16 block. vs 20: 20−16 = 4, +2 self = 6 — still better than 20.
+        var bloodWall = new Card { Name = "BloodWall", Cost = 1, Block = 16, SelfDamageOnPlay = 2 };
+        var r = TurnSim.Solve(P(1), new[] { E(100, intent: 20) }, new List<Card> { bloodWall });
+        Assert.Equal(6, r.MinHpLost);
+    }
+
+    [Fact]
+    public void Doom_ExecutesEnemyAtOrBelowThreshold()
+    {
+        // Oblivion applies Doom 25 to a 20-HP enemy → it dies at end of turn (counts as killed), no damage dealt.
+        var oblivion = new Card { Name = "Oblivion", Cost = 1, ApplyDoom = 25, DoomTarget = Tgt.OneEnemy };
+        var r = TurnSim.Solve(P(1), new[] { E(20) }, new List<Card> { oblivion });
+        Assert.True(r.CanKillAll);
+        Assert.Equal(20, r.MaxPerEnemy[0]);
+    }
+
+    [Fact]
+    public void Expose_RemovesEnemyBlock_SoAttacksLand()
+    {
+        // Enemy has 10 block; a lone Strike(6) would be fully absorbed. Expose strips the block first → 6 lands.
+        var enemy = new TurnSim.Enemy { Hp = 100, Block = 10 };
+        var expose = new Card { Name = "Expose", Cost = 1, RemoveEnemyBlock = true };
+        var r = TurnSim.Solve(P(2), new[] { enemy }, new List<Card> { expose, Strike(6) });
+        Assert.Equal(6, r.MaxDamage);
+    }
+
+    [Fact]
+    public void Dismantle_HitsTwiceWhenTargetVulnerable()
+    {
+        var dismantle = new Card { Name = "Dismantle", Cost = 1, Damage = 8, Hits = 1, AttackTarget = Tgt.OneEnemy, DoubleHitsIfTargetVulnerable = true };
+        var enemy = new TurnSim.Enemy { Hp = 100, Vulnerable = 1 };
+        var r = TurnSim.Solve(P(1), new[] { enemy }, new List<Card> { dismantle });
+        Assert.Equal(24, r.MaxDamage);   // 2 hits × floor(8 × 1.5) = 2 × 12
+    }
+
+    [Fact]
+    public void Apparition_GrantsIntangible_CapsIncomingToOne()
+    {
+        var apparition = new Card { Name = "Apparition", Cost = 1, GrantIntangible = true };
+        var r = TurnSim.Solve(P(1), new[] { E(100, intent: 20, hits: 1) }, new List<Card> { apparition });
+        Assert.Equal(1, r.MinHpLost);
+    }
+
+    [Fact]
+    public void Resonance_LowersAllEnemyStrength_SofteningIncoming()
+    {
+        var resonance = new Card { Name = "Resonance", Cost = 1, EnemyStrengthLoss = 1, EStrTarget = Tgt.AllEnemies };
+        var r = TurnSim.Solve(P(1), new[] { E(100, intent: 10) }, new List<Card> { resonance });
+        Assert.Equal(9, r.MinHpLost);   // 10 − 1 Strength
+    }
+
+    [Fact]
+    public void TrivialFastPath_MatchesDfs()
+    {
+        // The lean analyzer routes order-independent single-enemy hands to the closed-form knapsack path.
+        // It MUST agree with the exhaustive DFS on every metric — this is what licenses skipping the search.
+        var rnd = new System.Random(1234567);
+        for (int iter = 0; iter < 20000; iter++)
+        {
+            var p = new TurnSim.Player
+            {
+                Energy = rnd.Next(0, 8), Strength = rnd.Next(-2, 6), Dexterity = rnd.Next(-1, 4),
+                Weak = rnd.Next(2), Frail = rnd.Next(2), Shrink = rnd.Next(2), Vulnerable = rnd.Next(2),
+                Intangible = rnd.Next(6) == 0, HpLossReductionPerHit = rnd.Next(3) == 0 ? 1 : 0,
+                MaxHpLossThisTurn = rnd.Next(4) == 0 ? rnd.Next(5, 25) : 0, EndTurnSelfDamage = rnd.Next(4) == 0 ? rnd.Next(1, 8) : 0,
+            };
+            var enemy = new TurnSim.Enemy
+            {
+                Hp = rnd.Next(1, 70), Block = rnd.Next(0, 14), Vulnerable = rnd.Next(2),
+                IntentDamage = rnd.Next(0, 30), IntentHits = rnd.Next(1, 4),
+            };
+            var hand = new List<Card>();
+            int cards = rnd.Next(0, 7);
+            for (int k = 0; k < cards; k++)
+                hand.Add(rnd.Next(2) == 0
+                    ? new Card { Name = "A", Cost = rnd.Next(0, 4), Damage = rnd.Next(1, 15), Hits = rnd.Next(1, 4), AttackTarget = Tgt.OneEnemy }
+                    : new Card { Name = "B", Cost = rnd.Next(0, 4), Block = rnd.Next(1, 15) });
+
+            var fast = TurnSim.Solve(p, new[] { enemy }, hand);
+            var dfs = TurnSim.SolveDfs(p, new[] { enemy }, hand);
+            Assert.Equal(dfs.MaxDamage, fast.MaxDamage);
+            Assert.Equal(dfs.MinHpLost, fast.MinHpLost);
+            Assert.Equal(dfs.CanKillAll, fast.CanKillAll);
+            Assert.Equal(dfs.MaxPerEnemy[0], fast.MaxPerEnemy[0]);
+            Assert.Equal(0, fast.Nodes);   // proves the fast path (no search) was actually taken
+        }
+    }
+
+    [Fact]
+    public void OrderDependentHand_FallsBackToDfs()
+    {
+        // A hand with a scaling buff (Strength gain) is NOT trivial → must use the DFS (Nodes > 0),
+        // and must get the order right (buff before attacks): +2 Str, then Strike 6 → 8.
+        var buff = new Card { Name = "Flex", Cost = 0, StrengthGain = 2 };
+        var r = TurnSim.Solve(P(1), new[] { E(100) }, new List<Card> { buff, Strike(6) });
+        Assert.Equal(8, r.MaxDamage);
+        Assert.True(r.Nodes > 0);
     }
 
     [Fact]

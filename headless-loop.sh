@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Poka-Yoke Spire — headless verification loop.
+# Slay The Math — headless verification loop.
 #
 # One re-runnable command, ZERO on-screen footprint (no game launch, no window,
 # no dock icon). It:

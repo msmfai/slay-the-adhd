@@ -1,4 +1,4 @@
-# Slay the ADHD — working notes for LLM contributors
+# Slay The Math — working notes for LLM contributors
 
 ## ARCHITECTURE: correctness by construction (read this first)
 

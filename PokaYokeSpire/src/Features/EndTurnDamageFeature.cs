@@ -26,7 +26,7 @@ namespace PokaYokeSpire.Features;
 [HarmonyPatch(typeof(NEndTurnButton), "OnCombatStateChanged")]
 internal static class EndTurnDamageFeature
 {
-    private sealed class Orb { public Control Gem = null!; public System.Action<string> SetText = null!; public bool IsLeft; }
+    private sealed class Orb { public Control Gem = null!; public System.Action<string> SetText = null!; public System.Action<bool>? SetDanger; public bool IsLeft; }
 
     private static NEnergyCounter? _gemFor;
     private static Orb? _left, _right;
@@ -87,10 +87,12 @@ internal static class EndTurnDamageFeature
         if (o == null || o.Gen == _appliedGen) return;
         _appliedGen = o.Gen;
 
+        int defenseShown;
         if (!o.HasSim || o.Result.MaxPerEnemy == null || o.EnemyRefs == null)
         {
             _xTotal = 0; _yTotal = 0; _xPerEnemy = System.Array.Empty<int>(); _schedPerEnemy = System.Array.Empty<int>(); _enemyRefs = new();
             _leftText = $"{o.DoNothingIncoming} → {o.DoNothingIncoming}";
+            defenseShown = o.DoNothingIncoming;
         }
         else
         {
@@ -99,7 +101,12 @@ internal static class EndTurnDamageFeature
             _xPerEnemy = o.Result.MaxPerEnemy; _schedPerEnemy = o.Scheduled; _enemyRefs = o.EnemyRefs;
             int minTake = System.Math.Min(o.DoNothingIncoming, o.Result.MinHpLost);   // y ≤ x
             _leftText = $"{o.DoNothingIncoming} → {minTake}";
+            defenseShown = minTake;
         }
+        // Danger cue: the best you can do STILL leaves you at/near 0 HP. Threshold is live-tunable
+        // (1.0 = only when outright lethal). PlayerHp 0 (unknown) never triggers it.
+        bool danger = o.PlayerHp > 0 && defenseShown >= (int)System.Math.Ceiling(o.PlayerHp * Tunables.GemDangerHpFrac);
+        _left?.SetDanger?.Invoke(danger);
         _rightText = RightText();
         UpdateOrbs();
     }
@@ -243,11 +250,12 @@ internal static class EndTurnDamageFeature
         // orb body + swirl — clone whatever CanvasItem the counter actually holds (Control OR Node2D;
         // grabbing it as Control silently dropped the art when the field was a Node2D — a whole gem's
         // worth of "no art appears"). Keep each piece's original transform so the layout matches.
+        var artPieces = new List<CanvasItem>();
         var layers = CloneArtField(counter, "_layers", name, tint);
-        if (layers != null) gem.AddChild(layers);
+        if (layers != null) { gem.AddChild(layers); artPieces.Add(layers); }
 
         var rot = CloneArtField(counter, "_rotationLayers", name, tint);
-        if (rot != null) { gem.AddChild(rot); gem.AddChild(new VortexSpinner { Layers = rot }); }
+        if (rot != null) { gem.AddChild(rot); gem.AddChild(new VortexSpinner { Layers = rot }); artPieces.Add(rot); }
 
         // number — the real MegaLabel (font + centering), FIXED size so it never resizes per digit-count.
         System.Action<string> setText;
@@ -295,7 +303,14 @@ internal static class EndTurnDamageFeature
         // live each hover (so panel edits show at once). Above the gem, same offset the counter uses for
         // its own tip; anchoring at the gem inherits the gem's horizontal offset.
         GameTooltip.Bind(attached, tipKey, tooltip, new Vector2(-70f, -200f));
-        return new Orb { Gem = attached, SetText = setText, IsLeft = isLeft };
+        // Danger recolor (defense gem only): swap the orb art from its normal tint to the danger tint when
+        // this turn's minimum HP loss is lethal/near-lethal, then back. The white number stays legible.
+        System.Action<bool> setDanger = on =>
+        {
+            try { var col = on ? Tunables.GemDangerTint : tint; foreach (var pc in artPieces) if (GodotObject.IsInstanceValid(pc)) pc.Modulate = col; }
+            catch { }
+        };
+        return new Orb { Gem = attached, SetText = setText, SetDanger = setDanger, IsLeft = isLeft };
     }
 
     private static int TryHp(Creature c) { try { return c.CurrentHp; } catch { return 0; } }

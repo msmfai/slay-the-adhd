@@ -27,6 +27,8 @@ public static class EndOfTurnBlockRegistry
     public static readonly Dictionary<string, Func<RelicModel, int, int>> Relics = new()
     {
         // Orichalcum: gain 6 block if you end the turn with none.
+        // (Start-of-turn block relics — Sai, Anchor — are already in the snapshot's current block; only
+        //  genuine END-of-turn sources that aren't yet applied belong here.)
         ["Orichalcum"] = (_, block) => block == 0 ? 6 : 0,
     };
 
