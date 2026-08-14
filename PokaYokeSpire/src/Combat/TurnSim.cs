@@ -40,6 +40,7 @@ public static class TurnSim
     {
         public int Energy, Strength, Dexterity, Block;
         public int Weak, Frail, Vulnerable, Shrink;   // debuffs (presence, not magnitude)
+        public int EndTurnSelfDamage;                 // Burn/Toxic etc. in hand: HP lost at end of turn
     }
 
     /// A hand card reduced to its modeled effects. Damage &gt; 0 ⇒ it's an attack (a NonAttack otherwise,
@@ -106,7 +107,8 @@ public static class TurnSim
             incoming += Atk(e.IntentDamage, e.Strength, e.Weak > 0, false, p.Vulnerable > 0) * (e.IntentHits < 1 ? 1 : e.IntentHits);
         }
         int net = incoming - p.Block;
-        return net < 0 ? 0 : net;
+        if (net < 0) net = 0;
+        return net + p.EndTurnSelfDamage;   // Burn/Toxic/Infection etc. — unblockable end-of-turn HP loss
     }
 
     public static Result Solve(Player player, Enemy[] enemies, IReadOnlyList<Card> hand, int nodeCap = 200000)
