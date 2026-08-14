@@ -160,6 +160,7 @@ public static class TurnSimReader
                         if (pt == "StrengthPower") card.StrengthGain += (int)v.BaseValue;
                         else if (pt == "VulnerablePower") { card.ApplyVulnerable = (int)v.BaseValue; card.VulnTarget = EnemyTgt(cm.TargetType); }
                         else if (pt == "WeakPower") { card.ApplyWeak = (int)v.BaseValue; card.WeakTarget = EnemyTgt(cm.TargetType); }
+                        else if (pt == "PlatingPower" || pt == "MetallicizePower") card.FlatBlock += (int)v.BaseValue;   // block at end of THIS turn
                     }
                     break;
             }
@@ -176,8 +177,8 @@ public static class TurnSimReader
         if (name == "BodySlam") { card.Dynamic = TurnSim.Dyn.BodySlam; card.AttackTarget = TurnSim.Tgt.OneEnemy; }
         else if (name == "SecondWind") { card.Dynamic = TurnSim.Dyn.SecondWind; card.DynParam = card.Block; card.Block = 0; }
 
-        bool modeled = card.Damage > 0 || card.Block > 0 || card.StrengthGain != 0 || card.ApplyVulnerable > 0
-                       || card.ApplyWeak > 0 || card.EnergyGain != 0 || card.Dynamic != TurnSim.Dyn.None;
+        bool modeled = card.Damage > 0 || card.Block > 0 || card.FlatBlock != 0 || card.StrengthGain != 0
+                       || card.ApplyVulnerable > 0 || card.ApplyWeak > 0 || card.EnergyGain != 0 || card.Dynamic != TurnSim.Dyn.None;
         if (!modeled)
         {
             if (DebugLog.Enabled) DebugLog.Debug($"turnsim: no modeled effect for card '{name}' (type {cm.Type}) — excluded (worst case)");

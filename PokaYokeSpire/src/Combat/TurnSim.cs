@@ -52,7 +52,8 @@ public static class TurnSim
         public int Cost;
         public int Damage, Hits = 1;
         public Tgt AttackTarget = Tgt.None;
-        public int Block;
+        public int Block;       // block gained now (Dex/Frail-adjusted)
+        public int FlatBlock;   // Unpowered block that triggers this turn — Plating/Metallicize applied by a card
         public int StrengthGain;
         public int ApplyVulnerable; public Tgt VulnTarget = Tgt.None;
         public int ApplyWeak; public Tgt WeakTarget = Tgt.None;
@@ -271,6 +272,7 @@ public static class TurnSim
         }
 
         if (c.Block > 0) p.Block += Blk(c.Block, p.Dexterity, p.Frail > 0);
+        if (c.FlatBlock != 0) p.Block += c.FlatBlock;   // Plating gained this turn: Unpowered, no Dex/Frail
 
         if (c.Dynamic == Dyn.SecondWind)
         {
