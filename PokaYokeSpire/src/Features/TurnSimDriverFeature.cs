@@ -61,7 +61,7 @@ internal static class TurnSimDriverFeature
             _latest = new Out { Result = r, EnemyRefs = sim.EnemyRefs, Scheduled = sched, DoNothingIncoming = doNothing, Gen = g, HasSim = true };
             if (r.Truncated) DebugLog.Warn($"turnsim hit the node budget ({r.Nodes}) — result is a conservative bound (cards={sim.Hand.Count}, enemies={sim.Enemies.Length})");
             if (DebugLog.Enabled)
-                DebugLog.Debug($"turnsim solved: maxDmg={r.MaxDamage} perEnemy=[{string.Join(",", r.MaxPerEnemy)}] minHp={r.MinHpLost} killAll={r.CanKillAll} nodes={r.Nodes} in {sim.Hand.Count} cards");
+                DebugLog.Debug($"turnsim solved: maxDmg={r.MaxDamage} perEnemy=[{string.Join(",", r.MaxPerEnemy)}] defense base={r.BaselineHpLost}->min={r.MinHpLost} (exact do-nothing={doNothing}) killAll={r.CanKillAll} nodes={r.Nodes} in {sim.Hand.Count} cards");
         });
     }
 }
