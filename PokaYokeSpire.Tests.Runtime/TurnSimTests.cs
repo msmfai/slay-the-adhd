@@ -148,6 +148,15 @@ public class TurnSimTests
     }
 
     [Fact]
+    public void Intangible_CapsEachHitToOne()
+    {
+        // two enemies attacking 20 (×1 hit) and 8 (×2 hits); Intangible → each hit is 1 → 1 + 2 = 3.
+        var p = new TurnSim.Player { Energy = 0, Intangible = true };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 20, hits: 1), E(100, intent: 8, hits: 2) }, new List<Card>());
+        Assert.Equal(3, r.MinHpLost);
+    }
+
+    [Fact]
     public void DoNothing_IsAlwaysAnOption()
     {
         // with no useful cards, offense is 0 and you take the full hit.
