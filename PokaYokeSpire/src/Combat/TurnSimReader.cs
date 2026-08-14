@@ -53,6 +53,7 @@ public static class TurnSimReader
             Frail = Has(meC, "FrailPower") ? 1 : 0,
             Vulnerable = Has(meC, "VulnerablePower") ? 1 : 0,
             Shrink = Has(meC, "ShrinkPower") ? 1 : 0,
+            Intangible = Has(meC, "IntangiblePower"),   // caps each hit you take to 1
         };
 
         // ── enemies ──

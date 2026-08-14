@@ -40,6 +40,7 @@ public static class TurnSim
     {
         public int Energy, Strength, Dexterity, Block;
         public int Weak, Frail, Vulnerable, Shrink;   // debuffs (presence, not magnitude)
+        public bool Intangible;                       // caps EACH hit you take to 1
         public int EndTurnSelfDamage;                 // Burn/Toxic etc. in hand: HP lost at end of turn
     }
 
@@ -104,7 +105,9 @@ public static class TurnSim
         foreach (var e in enemies)
         {
             if (e.IntentDamage <= 0) continue;   // NB: no !e.Alive check — killing isn't defense
-            incoming += Atk(e.IntentDamage, e.Strength, e.Weak > 0, false, p.Vulnerable > 0) * (e.IntentHits < 1 ? 1 : e.IntentHits);
+            int perHit = Atk(e.IntentDamage, e.Strength, e.Weak > 0, false, p.Vulnerable > 0);
+            if (p.Intangible && perHit > 1) perHit = 1;   // Intangible caps EACH hit to 1
+            incoming += perHit * (e.IntentHits < 1 ? 1 : e.IntentHits);
         }
         int net = incoming - p.Block;
         if (net < 0) net = 0;
