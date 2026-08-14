@@ -139,6 +139,15 @@ public class TurnSimTests
     }
 
     [Fact]
+    public void EndTurnSelfDamage_Burn_AddsUnblockableToDefense()
+    {
+        // a Burn in hand adds 2 unblockable HP at end of turn, on top of the enemy attack (after block).
+        var p = new TurnSim.Player { Energy = 1, EndTurnSelfDamage = 2 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 10) }, new List<Card> { Defend(5) });
+        Assert.Equal(7, r.MinHpLost);   // (10 − 5 block) + 2 burn
+    }
+
+    [Fact]
     public void DoNothing_IsAlwaysAnOption()
     {
         // with no useful cards, offense is 0 and you take the full hit.

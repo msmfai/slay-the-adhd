@@ -13,8 +13,8 @@
       1.96,
       0
     ],
-    "incomingTip": "Incoming damage\nx → y  —  the HP you'll take if you play no more block (current block + end-of-turn relics),\nreducible to y by mitigation: playing your hand's block and Weaken/debuffs optimally.\n(Killing an attacker is offense — see the red gem — not counted here.)",
-    "offenseTip": "Your damage\nx + d  —  the most you can deal to a SINGLE enemy before it acts (each enemy solved on its own,\nincluding its share of AOE), plus d that lands on its own before your next turn (poison etc.).\nHover an enemy to scope to it; the energy gem glows green when you can kill it."
+    "incomingTip": "Defense\nHow much damage you will take if you end your turn, and the minimum damage you can take with your current hand.",
+    "offenseTip": "Offense\nThe maximum ammount of damage you can do to any enemy plus the ammount of damage you will do between turns. Hover over an enemy for single target values."
   },
   "hud": {
     "handRaiseFrac": 0.2,

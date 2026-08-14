@@ -42,7 +42,8 @@ internal static class TurnSimDriverFeature
     {
         var sim = TurnSimReader.Read(state);
         var p = IncomingDamage.Compute(state);
-        int doNothing = p.Valid ? p.NetHpLoss : 0;
+        // do-nothing incoming = enemy attacks (exact game hook) + Burn/Toxic-style end-of-turn self-damage
+        int doNothing = (p.Valid ? p.NetHpLoss : 0) + (sim?.Player.EndTurnSelfDamage ?? 0);
         long g = Interlocked.Increment(ref _gen);
 
         if (sim == null)

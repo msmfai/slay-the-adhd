@@ -80,11 +80,22 @@ public static class TurnSimReader
         snap.Enemies = enemies.ToArray();
 
         // ── hand ──
+        int endTurnSelf = 0;
         foreach (var cm in pcs.Hand.Cards)
         {
-            try { var card = ReadCard(cm); if (card != null) snap.Hand.Add(card); }
+            try
+            {
+                // status/curse cards that hurt you at end of turn while in hand (Burn 2, Toxic 5,
+                // Infection 3, BadLuck 13, Beckon 6, Decay 2, Regret = hand size, …).
+                if (cm.HasTurnEndInHandEffect)
+                    foreach (var v in cm.DynamicVars.Values) if (v.GetType().Name == "DamageVar") { endTurnSelf += (int)v.BaseValue; break; }
+
+                var card = ReadCard(cm);
+                if (card != null) snap.Hand.Add(card);
+            }
             catch { /* unreadable card -> excluded (worst case) */ }
         }
+        snap.Player.EndTurnSelfDamage = endTurnSelf;
         return snap;
     }
 
@@ -110,6 +121,10 @@ public static class TurnSimReader
     private static TurnSim.Card? ReadCard(CardModel cm)
     {
         string name = cm.GetType().Name;
+
+        // Unplayable cards (Burn/Wound/curses/statuses) are NOT plays — their DamageVar hits YOU at
+        // end of turn (handled separately), it is not a card you can deal with. Never treat as an attack.
+        if (cm.Keywords.Contains(CardKeyword.Unplayable)) return null;
 
         // X-cost attacks (Whirlwind: deal D to all enemies X times, X = energy). Model the attack; the
         // sim spends all energy and multiplies hits by X at play time. Non-attack X-cost isn't modeled.
