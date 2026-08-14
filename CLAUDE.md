@@ -76,3 +76,10 @@ the feature enforce it. The tests are the only eyes an LLM has here.
 Harmony weave) with **zero on-screen footprint and without touching the save**. Use it.
 Do **NOT** run `drive-headless.sh` — it deletes the in-progress run and overwrites the save
 slot. The player cares about their saves.
+
+**ASK PERMISSION before running `headless-loop.sh` (or any build/install) while the player may
+be playing.** It overwrites the installed `PokaYokeSpire.dll` that the running game has loaded,
+which **crashes the game**. Assume the player is in a run unless they've said otherwise. Before
+building: ask "OK to build now (it'll crash the game if you're playing)?" — batch up your edits
+and build once they confirm they're out of / done with the game. Never install the DLL out from
+under a live session.
