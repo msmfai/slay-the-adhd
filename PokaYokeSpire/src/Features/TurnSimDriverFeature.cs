@@ -62,6 +62,15 @@ internal static class TurnSimDriverFeature
             if (r.Truncated) DebugLog.Warn($"turnsim hit the node budget ({r.Nodes}) — result is a conservative bound (cards={sim.Hand.Count}, enemies={sim.Enemies.Length})");
             if (DebugLog.Enabled)
                 DebugLog.Debug($"turnsim solved: maxDmg={r.MaxDamage} perEnemy=[{string.Join(",", r.MaxPerEnemy)}] minHp={r.MinHpLost} (exact do-nothing={doNothing}) killAll={r.CanKillAll} nodes={r.Nodes} in {sim.Hand.Count} cards");
+
+            // When defense drops below the do-nothing, dump the hand so the CAUSE is unambiguous:
+            // a real block/Weaken card explains it; a pure attack (dN,blk0,wk0) would be a bug.
+            if (r.MinHpLost < doNothing && DebugLog.Enabled)
+            {
+                var sb = new System.Text.StringBuilder();
+                foreach (var c in sim.Hand) sb.Append($"{c.Name}(d{c.Damage},blk{c.Block},wk{c.ApplyWeak},vul{c.ApplyVulnerable},x{(c.XCost ? 1 : 0)}) ");
+                DebugLog.Warn($"defense {doNothing}->{r.MinHpLost}: hand = {sb}");
+            }
         });
     }
 }
