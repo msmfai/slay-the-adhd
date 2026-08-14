@@ -61,6 +61,7 @@ public static class TurnSimReader
         {
             if (e.CurrentHp <= 0) continue;
             var (dmg, hits) = ReadIntent(e);
+            var hardShell = FindPower(e, "HardenedShellPower");   // caps HP damage taken this turn
             enemies.Add(new TurnSim.Enemy
             {
                 Hp = e.CurrentHp,
@@ -70,6 +71,8 @@ public static class TurnSimReader
                 Strength = PowerAmount(e, "StrengthPower"),
                 IntentDamage = dmg,
                 IntentHits = hits,
+                Capped = hardShell != null,
+                CapRemaining = hardShell?.DisplayAmount ?? 0,   // remaining allowance this turn
             });
             snap.EnemyRefs.Add(e);
         }
@@ -106,8 +109,22 @@ public static class TurnSimReader
 
     private static TurnSim.Card? ReadCard(CardModel cm)
     {
-        if (cm.EnergyCost.CostsX) return null;   // X-cost: energy-dependent (not modeled yet)
         string name = cm.GetType().Name;
+
+        // X-cost attacks (Whirlwind: deal D to all enemies X times, X = energy). Model the attack; the
+        // sim spends all energy and multiplies hits by X at play time. Non-attack X-cost isn't modeled.
+        if (cm.EnergyCost.CostsX)
+        {
+            int xdmg = 0;
+            foreach (var v in cm.DynamicVars.Values) if (v.GetType().Name == "DamageVar") { xdmg = (int)v.BaseValue; break; }
+            if (xdmg <= 0)
+            {
+                if (DebugLog.Enabled) DebugLog.Debug($"turnsim: X-cost non-attack '{name}' unmodeled — excluded");
+                return null;
+            }
+            return new TurnSim.Card { Name = name, Cost = 0, XCost = true, Damage = xdmg, Hits = 1, AttackTarget = EnemyTgt(cm.TargetType) };
+        }
+
         int cost = cm.EnergyCost.GetWithModifiers(CostModifiers.All);
 
         var card = new TurnSim.Card { Name = name, Cost = cost, Hits = 1 };
@@ -171,4 +188,5 @@ public static class TurnSimReader
 
     private static bool Has(Creature c, string power) { foreach (var p in c.Powers) if (p.GetType().Name == power) return true; return false; }
     private static int PowerAmount(Creature c, string power) { foreach (var p in c.Powers) if (p.GetType().Name == power) return p.Amount; return 0; }
+    private static PowerModel? FindPower(Creature c, string power) { foreach (var p in c.Powers) if (p.GetType().Name == power) return p; return null; }
 }

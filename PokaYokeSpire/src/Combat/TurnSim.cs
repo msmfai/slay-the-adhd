@@ -31,6 +31,8 @@ public static class TurnSim
     {
         public int Hp, Block, Vulnerable, Weak, Strength;
         public int IntentDamage, IntentHits;   // this enemy's queued attack (0 if it isn't attacking)
+        public bool Capped;                     // Hardened Shell: caps HP damage taken this turn…
+        public int CapRemaining;                // …at this many more points (only when Capped)
         public bool Alive => Hp > 0;
     }
 
@@ -54,6 +56,7 @@ public static class TurnSim
         public int ApplyWeak; public Tgt WeakTarget = Tgt.None;
         public int EnergyGain;
         public bool Exhausts;
+        public bool XCost;     // X-cost card (Whirlwind): spends ALL energy, hits X = energy times
         public Dyn Dynamic = Dyn.None;
         public int DynParam;   // e.g. Second Wind's block-per-exhausted-card
         public bool IsAttack => Damage > 0 || Dynamic == Dyn.BodySlam;
@@ -153,7 +156,8 @@ public static class TurnSim
 
     private static bool SameSig(in Enemy a, in Enemy b) =>
         a.Hp == b.Hp && a.Block == b.Block && a.Vulnerable == b.Vulnerable && a.Weak == b.Weak && a.Strength == b.Strength
-        && a.IntentDamage == b.IntentDamage && a.IntentHits == b.IntentHits;
+        && a.IntentDamage == b.IntentDamage && a.IntentHits == b.IntentHits
+        && a.Capped == b.Capped && (!a.Capped || a.CapRemaining == b.CapRemaining);
 
     private static void Recurse(Player p, Enemy[] enemies, IReadOnlyList<Card> hand, int[] cardClass, ulong remaining,
                                 int[] initialHp, ref Result best, HashSet<string> visited, ref int nodes, int cap, bool payloadPlayed)
@@ -184,6 +188,7 @@ public static class TurnSim
             if ((remaining & bit) == 0) continue;
             var c = hand[i];
             if (c.Cost > p.Energy) continue;
+            if (c.XCost && p.Energy <= 0) continue;   // X-cost with no energy does nothing
 
             // T3 (setup-before-payload dominance): once an attack/Body Slam has been played, never play a
             // pure non-attack card — playing every setup/block BEFORE the attacks is always ≥ as good
@@ -232,7 +237,11 @@ public static class TurnSim
     {
         var c = hand[cardIndex];
         var e = (Enemy[])src.Clone();
-        p.Energy -= c.Cost;
+
+        // X-cost (Whirlwind): spends ALL energy, and hits X = that much
+        int xHits = 0;
+        if (c.XCost) { xHits = p.Energy; p.Energy = 0; }
+        else p.Energy -= c.Cost;
         p.Energy += c.EnergyGain;
 
         int dmg = c.Damage;
@@ -240,7 +249,7 @@ public static class TurnSim
 
         if (dmg > 0)
         {
-            int hits = c.Hits < 1 ? 1 : c.Hits;
+            int hits = c.XCost ? xHits : (c.Hits < 1 ? 1 : c.Hits);
             if (c.AttackTarget == Tgt.AllEnemies)
             {
                 for (int t = 0; t < e.Length; t++) if (e[t].Alive) HitEnemy(ref e[t], dmg, hits, p);
@@ -282,10 +291,12 @@ public static class TurnSim
         for (int h = 0; h < hits; h++)
         {
             int dmg = Atk(baseDmg, p.Strength, p.Weak > 0, p.Shrink > 0, e.Vulnerable > 0);
+            if (e.Capped && dmg > e.CapRemaining) dmg = e.CapRemaining;   // Hardened Shell: cap this turn
             int afterBlock = dmg - e.Block;
             if (afterBlock <= 0) { e.Block -= dmg; if (e.Block < 0) e.Block = 0; continue; }
             e.Block = 0;
             e.Hp -= afterBlock;
+            if (e.Capped) e.CapRemaining -= afterBlock;   // consumed part of the per-turn allowance
         }
     }
 
@@ -309,7 +320,7 @@ public static class TurnSim
         sb.Append(remaining).Append('|').Append(p.Energy).Append(',').Append(p.Strength).Append(',')
           .Append(p.Dexterity).Append(',').Append(p.Weak).Append(',').Append(p.Frail).Append(',')
           .Append(p.Block).Append(',').Append(p.Vulnerable).Append('|');
-        foreach (var x in e) sb.Append(x.Hp).Append(':').Append(x.Block).Append(':').Append(x.Vulnerable).Append(':').Append(x.Weak).Append(';');
+        foreach (var x in e) sb.Append(x.Hp).Append(':').Append(x.Block).Append(':').Append(x.Vulnerable).Append(':').Append(x.Weak).Append(':').Append(x.Capped ? x.CapRemaining : -1).Append(';');
         return sb.ToString();
     }
 }

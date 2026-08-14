@@ -118,6 +118,26 @@ public class TurnSimTests
     }
 
     [Fact]
+    public void HardenedShell_CapsDamageThisTurn()
+    {
+        // boss takes at most 20 HP damage this turn no matter what you throw at it.
+        var e = new TurnSim.Enemy { Hp = 1000, Capped = true, CapRemaining = 20 };
+        var r = TurnSim.Solve(P(2), new[] { e }, new List<Card> { Strike(30), Strike(30) });
+        Assert.Equal(20, r.MaxDamage);
+        Assert.Equal(20, r.MaxPerEnemy[0]);
+    }
+
+    [Fact]
+    public void Whirlwind_XCost_HitsAllEnemiesEnergyTimes()
+    {
+        var whirl = new Card { Name = "Whirlwind", Cost = 0, XCost = true, Damage = 5, AttackTarget = Tgt.AllEnemies };
+        var r = TurnSim.Solve(P(3), new[] { E(100), E(100) }, new List<Card> { whirl });
+        Assert.Equal(15, r.MaxPerEnemy[0]);   // 3 energy → 3 hits × 5
+        Assert.Equal(15, r.MaxPerEnemy[1]);
+        Assert.Equal(30, r.MaxDamage);
+    }
+
+    [Fact]
     public void DoNothing_IsAlwaysAnOption()
     {
         // with no useful cards, offense is 0 and you take the full hit.

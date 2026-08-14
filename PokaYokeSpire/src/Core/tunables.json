@@ -14,7 +14,7 @@
       0
     ],
     "incomingTip": "Defense\nHow much damage you will take before the start of your next turn, and the minimum ammount of damage you can recieve with your current hand.",
-    "offenseTip": "Offense\nThe maximum damage you can deal with this hand, plus damage enemies will take from effects before your next turn. Highlight an enemy for single enemy values. "
+    "offenseTip": "Your damage\nx + d  —  the most you can deal to a SINGLE enemy before it acts (each enemy solved on its own,\nincluding its share of AOE), plus d that lands on its own before your next turn (poison etc.).\nHover an enemy to scope to it; the energy gem glows green when you can kill it."
   },
   "hud": {
     "handRaiseFrac": 0.2,
