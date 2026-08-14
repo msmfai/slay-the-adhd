@@ -29,6 +29,10 @@ public static class Tunables
     public static Color GemRedTint { get; private set; } = new(1.9f, 0.5f, 0.28f);
     public static string IncomingTip { get; private set; } = "Incoming damage";
     public static string OffenseTip { get; private set; } = "Your damage";
+    // Defense gem turns to the danger tint when this turn's minimum HP loss ≥ this fraction of your current
+    // HP. 1.0 = only when the hit is outright lethal; lower it for an earlier "this really hurts" warning.
+    public static float GemDangerHpFrac { get; private set; } = 1.0f;
+    public static Color GemDangerTint { get; private set; } = new(2.0f, 0.16f, 0.12f);
 
     // ── hud raise + whole-cluster offset ──
     public static float HandRaiseFrac { get; private set; } = 0.5f;
@@ -79,6 +83,7 @@ public static class Tunables
         new() { Path = "gem.fontFrac", Min = 0.05f, Max = 0.60f, Step = 0.005f, Get = () => GemFontFrac, Set = v => { GemFontFrac = v; Bump(); } },
         new() { Path = "gem.gap",      Min = 0f,    Max = 60f,   Step = 0.5f,   Get = () => GemGap,      Set = v => { GemGap = v; Bump(); } },
         new() { Path = "gem.scale",    Min = 0.20f, Max = 1.20f, Step = 0.01f,  Get = () => GemScale,    Set = v => { GemScale = v; Bump(); } },
+        new() { Path = "gem.dangerHpFrac", Min = 0.10f, Max = 1.0f, Step = 0.05f, Get = () => GemDangerHpFrac, Set = v => { GemDangerHpFrac = v; Bump(); } },
         // hue/saturation/BRIGHTNESS (value can exceed 1 for an HDR glow) — far more intuitive than raw RGB
         new() { Path = "gem.blueHue",   Min = 0f, Max = 1f, Step = 0.01f, Get = () => GemBlueTint.H, Set = v => { GemBlueTint = WithHue(GemBlueTint, v); Bump(); } },
         new() { Path = "gem.blueSat",   Min = 0f, Max = 1f, Step = 0.01f, Get = () => GemBlueTint.S, Set = v => { GemBlueTint = WithSat(GemBlueTint, v); Bump(); } },
@@ -132,6 +137,8 @@ public static class Tunables
         var gem = new System.Collections.Generic.Dictionary<string, object>
         {
             ["fontFrac"] = Round(GemFontFrac), ["gap"] = Round(GemGap), ["scale"] = Round(GemScale),
+            ["dangerHpFrac"] = Round(GemDangerHpFrac),
+            ["dangerTint"] = new[] { Round(GemDangerTint.R), Round(GemDangerTint.G), Round(GemDangerTint.B) },
             ["blueTint"] = new[] { Round(GemBlueTint.R), Round(GemBlueTint.G), Round(GemBlueTint.B) },
             ["redTint"] = new[] { Round(GemRedTint.R), Round(GemRedTint.G), Round(GemRedTint.B) },
             ["incomingTip"] = IncomingTip, ["offenseTip"] = OffenseTip,
@@ -266,6 +273,8 @@ public static class Tunables
                 GemFontFrac = F(gem, "fontFrac", GemFontFrac);
                 GemGap = F(gem, "gap", GemGap);
                 GemScale = F(gem, "scale", GemScale);
+                GemDangerHpFrac = F(gem, "dangerHpFrac", GemDangerHpFrac);
+                GemDangerTint = Col(gem, "dangerTint", GemDangerTint);
                 GemBlueTint = Col(gem, "blueTint", GemBlueTint);
                 GemRedTint = Col(gem, "redTint", GemRedTint);
                 IncomingTip = S(gem, "incomingTip", IncomingTip);

@@ -1,6 +1,6 @@
 {
   "id": "PokaYokeSpire",
-  "name": "Poka-Yoke Spire",
+  "name": "Slay The Math",
   "author": "marin",
   "description": "Mistake-proofing guards (poka-yoke): a confirm before probable misclicks. v1: end-turn with unspent energy + a playable card; potion reminder in elite/boss fights.",
   "version": "0.1.0",

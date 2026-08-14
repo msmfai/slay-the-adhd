@@ -1,7 +1,8 @@
-# Poka-Yoke Spire
+# Slay The Math
 
 Mistake-proofing guards for Slay the Spire 2. Confirm-before-you-probably-misclick,
 tuned for ADHD: catch the impulsive/autopilot actions that are usually errors.
+(Internal assembly name: `PokaYokeSpire`.)
 
 ## v1 guards (test build)
 
@@ -61,7 +62,7 @@ Workshop mods use — a folder with `Name.dll` + `Name.pck` + manifest):
 ```
 (Confirm the exact mods dir name from `ModManager` at first run — it also loads from
 the Steam Workshop path. `mods/` did not exist yet; create it.)
-Then launch, accept the one-time mod-loading warning, and enable Poka-Yoke Spire in the
+Then launch, accept the one-time mod-loading warning, and enable Slay The Math in the
 in-game mod menu.
 
 ## Verify-at-build checklist (things that need the compiler to confirm)

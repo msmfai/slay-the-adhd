@@ -1,0 +1,11 @@
+{
+  "title": "Slay The Math",
+  "description": "Poka-yoke (mistake-proofing) quality-of-life for Slay the Spire 2.\n\n- Confirm before ending a turn with unspent energy and a playable card.\n- Potion reminder in elite/boss fights.\n- Combat gems flanking the energy orb: a defense gem (exact minimum HP you'll lose this turn, with a lethal danger cue) and an offense gem (max damage you can deal to any single enemy + scheduled between-turn damage), driven by an exhaustive off-thread turn simulator.\n- Radial relic layout, deck-under-reward, act-start notifications, card target preview, and more.\n\nDebug builds include an in-game live-tuning panel (F9).",
+  "visibility": "private",
+  "changeNote": "Initial upload.",
+  "tags": [],
+  "dependencies": [
+    "3737335127"
+  ],
+  "contentDescriptors": []
+}

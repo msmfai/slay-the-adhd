@@ -1,6 +1,6 @@
 {
   "pck_name": "PokaYokeSpire",
-  "name": "Poka-Yoke Spire",
+  "name": "Slay The Math",
   "author": "marin",
   "description": "Mistake-proofing guards: confirm-before-you-probably-misclick. v1: end-turn-with-energy, potion reminder in elite/boss fights.",
   "version": "0.1.0",

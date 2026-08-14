@@ -1,7 +1,9 @@
-# Slay the ADHD
+# Slay The Math
 
 An ADHD-oriented **mistake-proofing** quality-of-life mod for **Slay the Spire 2**, plus
-a headless test suite that runs against the real game code.
+a headless test suite that runs against the real game code. It does the arithmetic you'd
+otherwise do in your head every turn — exact incoming/outgoing damage — so you don't
+misjudge a lethal or a wasted turn.
 
 "Poka-yoke" (ポカヨケ) is the Japanese manufacturing term for a *mistake-proofing* device —
 a jig that won't let you assemble the part backwards. This mod does the same for StS2: it

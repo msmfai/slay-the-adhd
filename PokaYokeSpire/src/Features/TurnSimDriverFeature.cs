@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;             // CombatState
+using MegaCrit.Sts2.Core.Context;            // LocalContext
 using MegaCrit.Sts2.Core.Entities.Creatures; // Creature
 using MegaCrit.Sts2.Core.Nodes.Combat;       // NEnergyCounter
 using PokaYokeSpire.Combat;                   // TurnSim, TurnSimReader, IncomingDamage, ScheduledDamage
@@ -27,6 +28,7 @@ internal static class TurnSimDriverFeature
         public List<Creature>? EnemyRefs;
         public int[] Scheduled = System.Array.Empty<int>();
         public int DoNothingIncoming;
+        public int PlayerHp;  // current HP, so the defense gem can flag a lethal/near-lethal turn
         public long Gen;
         public bool HasSim;   // false when it's not the player's turn / no enemies
     }
@@ -44,11 +46,13 @@ internal static class TurnSimDriverFeature
         var p = IncomingDamage.Compute(state);
         // do-nothing incoming = enemy attacks (exact game hook) + Burn/Toxic-style end-of-turn self-damage
         int doNothing = (p.Valid ? p.NetHpLoss : 0) + (sim?.Player.EndTurnSelfDamage ?? 0);
+        int playerHp = 0;
+        try { playerHp = LocalContext.GetMe((System.Collections.Generic.IEnumerable<Creature>)state.Creatures)?.CurrentHp ?? 0; } catch { }
         long g = Interlocked.Increment(ref _gen);
 
         if (sim == null)
         {
-            _latest = new Out { DoNothingIncoming = doNothing, Gen = g, HasSim = false };
+            _latest = new Out { DoNothingIncoming = doNothing, PlayerHp = playerHp, Gen = g, HasSim = false };
             return;
         }
 
@@ -59,7 +63,7 @@ internal static class TurnSimDriverFeature
             try { r = TurnSim.Solve(sim.Player, sim.Enemies, sim.Hand, nodeCap: 200000); }
             catch (System.Exception e) { DebugLog.Error("TurnSim.Solve", e); return; }
             if (Interlocked.Read(ref _gen) != g) return;   // a newer snapshot superseded us
-            _latest = new Out { Result = r, EnemyRefs = sim.EnemyRefs, Scheduled = sched, DoNothingIncoming = doNothing, Gen = g, HasSim = true };
+            _latest = new Out { Result = r, EnemyRefs = sim.EnemyRefs, Scheduled = sched, DoNothingIncoming = doNothing, PlayerHp = playerHp, Gen = g, HasSim = true };
             if (r.Truncated) DebugLog.Warn($"turnsim hit the node budget ({r.Nodes}) — result is a conservative bound (cards={sim.Hand.Count}, enemies={sim.Enemies.Length})");
             if (DebugLog.Enabled)
                 DebugLog.Debug($"turnsim solved: maxDmg={r.MaxDamage} perEnemy=[{string.Join(",", r.MaxPerEnemy)}] minHp={r.MinHpLost} (exact do-nothing={doNothing}) killAll={r.CanKillAll} nodes={r.Nodes} in {sim.Hand.Count} cards");

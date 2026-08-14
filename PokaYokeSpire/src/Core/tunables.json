@@ -3,6 +3,12 @@
     "fontFrac": 0.155,
     "gap": 10.5,
     "scale": 0.78,
+    "dangerHpFrac": 1.0,
+    "dangerTint": [
+      2.0,
+      0.16,
+      0.12
+    ],
     "blueTint": [
       0,
       2,

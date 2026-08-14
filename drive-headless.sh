@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Poka-Yoke Spire — DRIVE the real game headless, invisibly and silently, and
+# Slay The Math — DRIVE the real game headless, invisibly and silently, and
 # assert from the log which features actually fire in a live AutoSlay run.
 #
 #   invisible : --headless (no window) + LSUIElement (no dock icon)
