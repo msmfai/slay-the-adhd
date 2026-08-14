@@ -70,6 +70,7 @@ public static class TurnSim
         public bool CanKillAll;   // is there ONE play sequence that leaves every enemy dead this turn?
         public int Nodes;         // states expanded (for diagnostics); == cap ⇒ truncated (conservative)
         public bool Truncated;    // true if the node budget was hit before the search finished
+        public int BaselineHpLost;// HP lost with NO plays (the sim's do-nothing) — for anchoring the gem
     }
 
     // ── damage / block math (STS pipeline: (base + Σadditive) × Πmultiplicative, floored ONCE) ──
@@ -92,13 +93,17 @@ public static class TurnSim
         return b;
     }
 
-    /// HP you'd lose to the enemies' queued attacks in the current state (block absorbs the total).
+    /// HP you'd lose to the enemies' queued attacks — the DEFENSE score. This is pure MITIGATION: block
+    /// and Weaken/Vulnerable reduce it, but KILLING an attacker does NOT (that's offense — it competes for
+    /// the same energy and belongs to the offense gem / green glow). So every attacker's intent counts
+    /// regardless of whether the sim's attacks could kill it; only block and its (possibly Weakened)
+    /// damage change. Keeps a pure Strike from ever reading as "defense".
     internal static int HpLost(in Player p, Enemy[] enemies)
     {
         int incoming = 0;
         foreach (var e in enemies)
         {
-            if (!e.Alive || e.IntentDamage <= 0) continue;
+            if (e.IntentDamage <= 0) continue;   // NB: no !e.Alive check — killing isn't defense
             incoming += Atk(e.IntentDamage, e.Strength, e.Weak > 0, false, p.Vulnerable > 0) * (e.IntentHits < 1 ? 1 : e.IntentHits);
         }
         int net = incoming - p.Block;
@@ -113,7 +118,8 @@ public static class TurnSim
 
         int[] cardClass = ClassifyCards(hand);   // identical cards → same class (played in one canonical order)
 
-        var best = new Result { MaxDamage = 0, MaxPerEnemy = new int[n], MinHpLost = HpLost(player, enemies) };
+        int baseline = HpLost(player, enemies);
+        var best = new Result { MaxDamage = 0, MaxPerEnemy = new int[n], MinHpLost = baseline, BaselineHpLost = baseline };
         var visited = new HashSet<string>();
         int nodes = 0;
         ulong fullMask = hand.Count >= 64 ? ulong.MaxValue : (1UL << hand.Count) - 1;
