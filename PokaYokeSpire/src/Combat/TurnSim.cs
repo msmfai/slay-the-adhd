@@ -36,6 +36,9 @@ public static class TurnSim
         public int Doom;                        // Doom stacks: dies at end of turn if Hp <= Doom (an execute)
         public int PerHitCap;                   // Hard to Kill / Slippery / Intangible: caps EACH hit taken to this (0 = none)
         public int DamageTakenPct;              // Soar/Flutter/Guarded/Colossus: % of damage this enemy takes (0 = 100%)
+        public int BlockOnFirstHit;             // Curl Up: gains this block right after first taking damage
+        public bool CurlUpArmed;                // Curl Up still armed (not yet triggered)
+        public int BufferHits;                  // enemy Buffer: negate this many of YOUR hits (deal 0)
         public bool Alive => Hp > 0;
     }
 
@@ -48,7 +51,33 @@ public static class TurnSim
         public int SelfDamageThisTurn;                // HP-cost cards played (Hemokinesis/Offering/Bloodletting): unblockable
         public int Vigor;                             // flat bonus to your NEXT card attack, then consumed
         public int BlockPerAttack;                    // Rage: gain this much (Unpowered) block per Attack you play
+        public int BlockPerCardPlayed;                // Afterimage: gain this block on EVERY card you play
+        public int BlockPerExhaust;                   // Feel No Pain: gain this block per card exhausted
+        public int FirstAttackBonusPct;               // Lethality: your FIRST attack each turn does +this %
+        public bool AttackedThisTurn;                 // has any attack been played yet (for Lethality)
+        public int IncomingMultPct;                   // Tank: incoming enemy-attack damage ×this % (0 = 100%)
+        public int ReactiveBlock;                     // Sneaky etc.: block gained during the enemy turn (mitigates their attacks only)
+        public int WeakTargetMult;                    // Tracking: your attacks vs Weak enemies ×this (0/1 = none)
+        public int VulnBonusPct;                      // Cruelty: Vulnerable multiplier +this % (on top of 1.5)
+        public int DamageOnBlockGain;                 // Juggernaut: deal this to an enemy whenever a card gives you block
+        public int DamagePerCard;                     // Serpent Form: deal this to an enemy on every card you play
+        public int StrOnHpLoss;                       // Rupture: gain this Strength when a card costs you HP
+        public int BlockOnExpensiveCard;              // Danse Macabre: gain this block per card costing >= 2
+        public int BufferHits;                        // Buffer: negate this many incoming hits (the largest)
+        public int EnemyStrDownOnHit;                 // Monarch's Gaze: an enemy you hit loses this much Strength
+        public int PanacheDmg;                        // Panache: every 5 cards played, deal this to all enemies
+        public int CardsPlayedThisTurn;               // counter for Panache
+        public int DamageOnDebuff;                    // Sleight of Flesh: deal this when you apply a debuff to an enemy
+        public int EchoCards;                         // Echo Form: this many of your next cards deal/block twice
+        public int DefendBlockBonus;                  // Fasten: +this block on Defend-tagged block cards
+        public int ShivDamageBonus;                   // Accuracy: +this damage to each Shiv attack
+        public int FirstShivBonus;                    // Phantom Blades: +this to the FIRST Shiv each turn
+        public bool FirstShivUsed;                    // whether the first Shiv has been played
+        public int StrOnColorless;                    // Arsenal: +this Strength when you play a colorless card
+        public int BlockOnEthereal;                   // Spirit of Ash: +this block per Ethereal card played
+        public int BlockOnDoomApplied;                // Shroud: +this block when you apply Doom
         public bool ExhaustedThisTurn;                // has any card been exhausted this turn (Evil Eye condition)
+        public int DoubleNextBlockCards;              // Unmovable: this many of your next block-gaining cards are doubled
         public int HpLossReductionPerHit;             // Tungsten Rod: each hit you take loses this many points
         public int MaxHpLossThisTurn;                 // Beating Remnant: HP lost this turn is capped here (0 = uncapped)
     }
@@ -77,6 +106,7 @@ public static class TurnSim
         public bool GrantIntangible;          // Apparition/Wraith Form: become Intangible (each hit capped to 1)
         public bool RemoveEnemyBlock;         // Expose: set the target enemy's Block to 0
         public bool DoubleHitsIfTargetVulnerable;   // Dismantle: hits ×2 if the target is Vulnerable
+        public bool IsDefend, IsShiv, IsColorless, IsEthereal;   // tags for Fasten/Accuracy/PhantomBlades/Arsenal/SpiritOfAsh
         public int ApplyDoom; public Tgt DoomTarget = Tgt.None;   // Oblivion/End of Days: end-of-turn execute
         public bool XCost;     // X-cost card (Whirlwind): spends ALL energy, hits X = energy times
         public Dyn Dynamic = Dyn.None;
@@ -95,14 +125,14 @@ public static class TurnSim
     }
 
     // ── damage / block math (STS pipeline: (base + Σadditive) × Πmultiplicative, floored ONCE) ──
-    internal static int Atk(int baseDmg, int strength, bool weak, bool shrink, bool vuln)
+    internal static int Atk(int baseDmg, int strength, bool weak, bool shrink, bool vuln, int vulnBonusPct = 0)
     {
         decimal d = baseDmg + strength;          // additive: Strength (Vigor/etc. fold in here too)
         if (d < 0m) d = 0m;
         decimal m = 1m;                           // multiplicative, applied together then floored once
         if (weak) m *= 0.75m;                     // Weak −25%
         if (shrink) m *= 0.70m;                   // Shrink −30% (flat, not a Strength cut)
-        if (vuln) m *= 1.5m;                      // Vulnerable +50%
+        if (vuln) m *= (150 + vulnBonusPct) / 100m;   // Vulnerable +50% (+Cruelty bonus)
         return (int)decimal.Floor(d * m);
     }
 
@@ -121,21 +151,46 @@ public static class TurnSim
     /// damage change. Keeps a pure Strike from ever reading as "defense".
     internal static int HpLost(in Player p, Enemy[] enemies)
     {
-        int incoming = 0;
-        foreach (var e in enemies)
+        int incoming;
+        if (p.BufferHits > 0)
         {
-            if (e.IntentDamage <= 0) continue;   // NB: no !e.Alive check — killing isn't defense
-            int perHit = Atk(e.IntentDamage, e.Strength, e.Weak > 0, false, p.Vulnerable > 0);
-            if (p.Intangible && perHit > 1) perHit = 1;   // Intangible caps EACH hit to 1
-            perHit -= p.HpLossReductionPerHit;            // Tungsten Rod: −N per instance of HP loss
-            if (perHit < 0) perHit = 0;
-            incoming += perHit * (e.IntentHits < 1 ? 1 : e.IntentHits);
+            // Buffer negates whole instances of HP loss — model it as removing the largest incoming hits.
+            var hitList = new List<int>();
+            foreach (var e in enemies)
+            {
+                if (e.IntentDamage <= 0) continue;
+                int perHit = PerHitIncoming(e, p);
+                int hc = e.IntentHits < 1 ? 1 : e.IntentHits;
+                for (int h = 0; h < hc; h++) hitList.Add(perHit);
+            }
+            hitList.Sort();   // ascending
+            for (int i = 0; i < p.BufferHits && i < hitList.Count; i++) hitList[hitList.Count - 1 - i] = 0;   // negate largest
+            incoming = 0; foreach (var x in hitList) incoming += x;
         }
-        int net = incoming - p.Block;
+        else
+        {
+            incoming = 0;
+            foreach (var e in enemies)
+            {
+                if (e.IntentDamage <= 0) continue;   // NB: no !e.Alive check — killing isn't defense
+                incoming += PerHitIncoming(e, p) * (e.IntentHits < 1 ? 1 : e.IntentHits);
+            }
+        }
+        int net = incoming - p.Block - p.ReactiveBlock;   // ReactiveBlock (Sneaky): mitigation gained during the enemy turn
         if (net < 0) net = 0;
         net += p.EndTurnSelfDamage + p.SelfDamageThisTurn;   // unblockable: end-of-turn (Burn/Toxic) + HP-cost cards played
         if (p.MaxHpLossThisTurn > 0 && net > p.MaxHpLossThisTurn) net = p.MaxHpLossThisTurn;   // Beating Remnant cap
         return net;
+    }
+
+    /// One enemy hit's HP damage to the player: Weak/Vulnerable, then Tank (×), Intangible (cap 1), Tungsten (−N).
+    private static int PerHitIncoming(in Enemy e, in Player p)
+    {
+        int perHit = Atk(e.IntentDamage, e.Strength, e.Weak > 0, false, p.Vulnerable > 0);
+        if (p.IncomingMultPct > 0) perHit = perHit * p.IncomingMultPct / 100;   // Tank: incoming ×2
+        if (p.Intangible && perHit > 1) perHit = 1;                              // Intangible caps EACH hit to 1
+        perHit -= p.HpLossReductionPerHit;                                       // Tungsten Rod: −N per instance
+        return perHit < 0 ? 0 : perHit;
     }
 
     /// Public entry: a lean STATIC analyzer picks the cheapest CORRECT method for this hand. A hand with no
@@ -197,7 +252,13 @@ public static class TurnSim
     private static bool IsTrivialSingleEnemy(in Player p, Enemy[] enemies, IReadOnlyList<Card> hand)
     {
         if (enemies.Length != 1 || enemies[0].Capped || enemies[0].PerHitCap > 0 || enemies[0].DamageTakenPct > 0) return false;
-        if (p.Vigor != 0 || p.BlockPerAttack != 0) return false;
+        if (enemies[0].BlockOnFirstHit > 0 || enemies[0].BufferHits > 0) return false;
+        if (p.Vigor != 0 || p.BlockPerAttack != 0 || p.DoubleNextBlockCards != 0) return false;
+        if (p.BlockPerCardPlayed != 0 || p.BlockPerExhaust != 0 || p.FirstAttackBonusPct != 0 || p.IncomingMultPct != 0) return false;
+        if (p.WeakTargetMult != 0 || p.VulnBonusPct != 0 || p.DamageOnBlockGain != 0 || p.DamagePerCard != 0
+            || p.StrOnHpLoss != 0 || p.BlockOnExpensiveCard != 0 || p.EnemyStrDownOnHit != 0) return false;
+        if (p.PanacheDmg != 0 || p.DamageOnDebuff != 0 || p.EchoCards != 0 || p.DefendBlockBonus != 0
+            || p.ShivDamageBonus != 0 || p.FirstShivBonus != 0 || p.StrOnColorless != 0 || p.BlockOnEthereal != 0 || p.BlockOnDoomApplied != 0) return false;
         foreach (var c in hand) if (!IsPureAttack(c) && !IsPureBlock(c)) return false;
         return true;
     }
@@ -278,12 +339,14 @@ public static class TurnSim
         && a.SelfDamageOnPlay == b.SelfDamageOnPlay && a.GrantIntangible == b.GrantIntangible
         && a.RemoveEnemyBlock == b.RemoveEnemyBlock && a.DoubleHitsIfTargetVulnerable == b.DoubleHitsIfTargetVulnerable
         && a.ApplyDoom == b.ApplyDoom && a.DoomTarget == b.DoomTarget
+        && a.IsDefend == b.IsDefend && a.IsShiv == b.IsShiv && a.IsColorless == b.IsColorless && a.IsEthereal == b.IsEthereal
         && a.Dynamic == b.Dynamic && a.DynParam == b.DynParam;
 
     private static bool SameSig(in Enemy a, in Enemy b) =>
         a.Hp == b.Hp && a.Block == b.Block && a.Vulnerable == b.Vulnerable && a.Weak == b.Weak && a.Strength == b.Strength
         && a.IntentDamage == b.IntentDamage && a.IntentHits == b.IntentHits && a.Doom == b.Doom
         && a.PerHitCap == b.PerHitCap && a.DamageTakenPct == b.DamageTakenPct
+        && a.BlockOnFirstHit == b.BlockOnFirstHit && a.CurlUpArmed == b.CurlUpArmed && a.BufferHits == b.BufferHits
         && a.Capped == b.Capped && (!a.Capped || a.CapRemaining == b.CapRemaining);
 
     private static void Recurse(Player p, Enemy[] enemies, IReadOnlyList<Card> hand, int[] cardClass, ulong remaining,
@@ -376,30 +439,54 @@ public static class TurnSim
 
         int dmg = c.Damage;
         if (c.Dynamic == Dyn.BodySlam) dmg = p.Block;   // Body Slam: damage == current block
+        if (c.IsShiv && dmg > 0)                         // Accuracy (+all Shivs) / Phantom Blades (+first Shiv)
+        {
+            dmg += p.ShivDamageBonus;
+            if (!p.FirstShivUsed && p.FirstShivBonus > 0) dmg += p.FirstShivBonus;
+        }
+
+        int echoTimes = 1;                              // Echo Form: the first N cards play twice
+        if (p.EchoCards > 0) { echoTimes = 2; p.EchoCards--; }
 
         if (dmg > 0)
         {
             int vigor = p.Vigor;                        // Vigor: flat bonus to THIS (your next) card attack…
+            int outMult = (!p.AttackedThisTurn && p.FirstAttackBonusPct > 0) ? 100 + p.FirstAttackBonusPct : 100;   // Lethality: FIRST attack only
             int hits = c.XCost ? xHits : (c.Hits < 1 ? 1 : c.Hits);
             if (c.DoubleHitsIfTargetVulnerable && target >= 0 && target < e.Length && e[target].Vulnerable > 0) hits *= 2;   // Dismantle
-            if (c.AttackTarget == Tgt.AllEnemies)
+            for (int rep = 0; rep < echoTimes; rep++)
             {
-                for (int t = 0; t < e.Length; t++) if (e[t].Alive) HitEnemy(ref e[t], dmg, hits, p, vigor);
-            }
-            else
-            {
-                int t = target >= 0 ? target : FirstAlive(e);
-                if (t >= 0) HitEnemy(ref e[t], dmg, hits, p, vigor);
+                if (c.AttackTarget == Tgt.AllEnemies)
+                {
+                    for (int t = 0; t < e.Length; t++) if (e[t].Alive) HitEnemy(ref e[t], dmg, hits, p, vigor, outMult);
+                }
+                else
+                {
+                    int t = target >= 0 ? target : FirstAlive(e);
+                    if (t >= 0) HitEnemy(ref e[t], dmg, hits, p, vigor, outMult);
+                }
+                outMult = 100;                          // Lethality applies only to the first swing
             }
             p.Vigor = 0;                                // …then consumed, whatever the target
+            p.AttackedThisTurn = true;                  // the first attack (and its Lethality bonus) is now spent
+            if (c.IsShiv) p.FirstShivUsed = true;
+            if (p.EnemyStrDownOnHit > 0)                // Monarch's Gaze: enemies you hit lose Strength
+            {
+                if (c.AttackTarget == Tgt.AllEnemies) { for (int t = 0; t < e.Length; t++) if (e[t].Alive) e[t].Strength -= p.EnemyStrDownOnHit; }
+                else { int mt = target >= 0 ? target : FirstAlive(e); if (mt >= 0) e[mt].Strength -= p.EnemyStrDownOnHit; }
+            }
         }
 
         if (c.Block > 0)
         {
-            int b = Blk(c.Block, p.Dexterity, p.Frail > 0);
+            int b = Blk(c.Block + (c.IsDefend ? p.DefendBlockBonus : 0), p.Dexterity, p.Frail > 0);   // Fasten
             if (c.DoubleBlockIfExhausted && p.ExhaustedThisTurn) b *= 2;   // Evil Eye: doubled if you exhausted a card
+            if (p.DoubleNextBlockCards > 0) { b *= 2; p.DoubleNextBlockCards--; }   // Unmovable: first N block cards doubled
+            b *= echoTimes;                             // Echo Form: play the block twice
             p.Block += b;
+            if (p.DamageOnBlockGain > 0) DealFlat(ref e, p.DamageOnBlockGain, target);   // Juggernaut
         }
+        if (c.Cost >= 2 && p.BlockOnExpensiveCard > 0) p.Block += p.BlockOnExpensiveCard;   // Danse Macabre
         if (c.FlatBlock != 0) p.Block += c.FlatBlock;   // Plating gained this turn: Unpowered, no Dex/Frail
         if (c.IsAttack && p.BlockPerAttack > 0) p.Block += p.BlockPerAttack;   // Rage: block after each attack (Unpowered)
         if (c.Dynamic == Dyn.Entrench) p.Block *= 2;    // Entrench: double current block
@@ -417,33 +504,49 @@ public static class TurnSim
             }
             p.Block += Blk(c.DynParam, p.Dexterity, p.Frail > 0) * exhausted;
             remaining &= ~toExhaust;
-            if (exhausted > 0) p.ExhaustedThisTurn = true;   // enables Evil Eye's double
+            if (exhausted > 0) { p.ExhaustedThisTurn = true; p.Block += p.BlockPerExhaust * exhausted; }   // Evil Eye + Feel No Pain
         }
 
         if (c.StrengthGain != 0) p.Strength += c.StrengthGain;
         if (c.DexterityGain != 0) p.Dexterity += c.DexterityGain;   // boosts your LATER block cards
         if (c.VigorGain != 0) p.Vigor += c.VigorGain;
         if (c.GrantBlockPerAttack != 0) p.BlockPerAttack += c.GrantBlockPerAttack;   // Rage: arm block-per-attack
+        if (c.IsColorless && p.StrOnColorless > 0) p.Strength += p.StrOnColorless;   // Arsenal
+        if (c.IsEthereal && p.BlockOnEthereal > 0) p.Block += p.BlockOnEthereal;     // Spirit of Ash
         ApplyStrengthLoss(ref e, c.EnemyStrengthLoss, c.EStrTarget, target);   // Piercing Wail etc. (signed)
         ApplyStatus(ref e, c.ApplyVulnerable, c.VulnTarget, target, isVuln: true);
         ApplyStatus(ref e, c.ApplyWeak, c.WeakTarget, target, isVuln: false);
         ApplyDoomTo(ref e, c.ApplyDoom, c.DoomTarget, target);   // Oblivion/End of Days: end-of-turn execute
+        if (c.ApplyDoom > 0 && p.BlockOnDoomApplied > 0) p.Block += p.BlockOnDoomApplied;   // Shroud
+        if (p.DamageOnDebuff > 0 && (c.ApplyVulnerable > 0 || c.ApplyWeak > 0 || c.EnemyStrengthLoss > 0))
+            DealFlat(ref e, p.DamageOnDebuff, target);   // Sleight of Flesh
 
-        if (c.SelfDamageOnPlay != 0) p.SelfDamageThisTurn += c.SelfDamageOnPlay;   // Hemokinesis/Offering: unblockable HP cost
+        if (c.SelfDamageOnPlay != 0) { p.SelfDamageThisTurn += c.SelfDamageOnPlay; if (p.StrOnHpLoss > 0) p.Strength += p.StrOnHpLoss; }   // Hemokinesis/Offering + Rupture
         if (c.GrantIntangible) p.Intangible = true;                                // Apparition/Wraith Form
         if (c.RemoveEnemyBlock) { int rt = target >= 0 ? target : FirstAlive(e); if (rt >= 0) e[rt].Block = 0; }   // Expose
 
-        if (c.Exhausts) p.ExhaustedThisTurn = true;   // a self-exhausting card counts for Evil Eye's condition
+        if (c.Exhausts) { p.ExhaustedThisTurn = true; p.Block += p.BlockPerExhaust; }   // Evil Eye condition + Feel No Pain
+        if (p.BlockPerCardPlayed > 0) p.Block += p.BlockPerCardPlayed;                   // Afterimage: block on every card played
+        if (p.DamagePerCard > 0) DealFlat(ref e, p.DamagePerCard, -1);                    // Serpent Form: damage on every card played
+        if (p.PanacheDmg > 0)                                                            // Panache: every 5 cards, hit all
+        {
+            p.CardsPlayedThisTurn++;
+            if (p.CardsPlayedThisTurn % 5 == 0)
+                for (int t = 0; t < e.Length; t++) if (e[t].Alive) DealFlat(ref e, p.PanacheDmg, t);
+        }
 
         remaining &= ~(1UL << cardIndex);
         return (p, e, remaining);
     }
 
-    private static void HitEnemy(ref Enemy e, int baseDmg, int hits, in Player p, int flatBonus = 0)
+    private static void HitEnemy(ref Enemy e, int baseDmg, int hits, in Player p, int flatBonus = 0, int outMultPct = 100)
     {
         for (int h = 0; h < hits; h++)
         {
-            int dmg = Atk(baseDmg, p.Strength + flatBonus, p.Weak > 0, p.Shrink > 0, e.Vulnerable > 0);
+            if (e.BufferHits > 0) { e.BufferHits--; continue; }   // enemy Buffer negates this whole hit
+            int dmg = Atk(baseDmg, p.Strength + flatBonus, p.Weak > 0, p.Shrink > 0, e.Vulnerable > 0, p.VulnBonusPct);
+            if (e.Weak > 0 && p.WeakTargetMult > 1) dmg *= p.WeakTargetMult;   // Tracking: ×vs Weak enemies
+            if (outMultPct != 100) dmg = dmg * outMultPct / 100;           // Lethality: first-attack multiplier
             if (e.DamageTakenPct > 0) dmg = dmg * e.DamageTakenPct / 100;   // Soar/Flutter/Guarded/Colossus: reduce damage taken
             if (e.PerHitCap > 0 && dmg > e.PerHitCap) dmg = e.PerHitCap;   // Hard to Kill/Slippery: cap EACH hit (per-hit, no depletion)
             if (e.Capped && dmg > e.CapRemaining) dmg = e.CapRemaining;   // Hardened Shell: cap this turn (per-turn total)
@@ -452,6 +555,7 @@ public static class TurnSim
             e.Block = 0;
             e.Hp -= afterBlock;
             if (e.Capped) e.CapRemaining -= afterBlock;   // consumed part of the per-turn allowance
+            if (e.CurlUpArmed) { e.Block += e.BlockOnFirstHit; e.CurlUpArmed = false; }   // Curl Up: block after first hit
         }
     }
 
@@ -481,6 +585,23 @@ public static class TurnSim
         }
     }
 
+    /// Flat, Unpowered damage to one enemy (Juggernaut / Serpent Form / Panache): no Strength/Weak/Vuln,
+    /// but still absorbed by block and clamped by the enemy's damage-reduction / per-hit / turn caps.
+    private static void DealFlat(ref Enemy[] e, int amount, int target)
+    {
+        if (amount <= 0) return;
+        int t = target >= 0 ? target : FirstAlive(e);
+        if (t < 0) return;
+        int dmg = amount;
+        if (e[t].DamageTakenPct > 0) dmg = dmg * e[t].DamageTakenPct / 100;
+        if (e[t].PerHitCap > 0 && dmg > e[t].PerHitCap) dmg = e[t].PerHitCap;
+        if (e[t].Capped && dmg > e[t].CapRemaining) dmg = e[t].CapRemaining;
+        int afterBlock = dmg - e[t].Block;
+        if (afterBlock <= 0) { e[t].Block -= dmg; if (e[t].Block < 0) e[t].Block = 0; return; }
+        e[t].Block = 0; e[t].Hp -= afterBlock;
+        if (e[t].Capped) e[t].CapRemaining -= afterBlock;
+    }
+
     private static void ApplyDoomTo(ref Enemy[] e, int amount, Tgt tgt, int target)
     {
         if (amount <= 0 || tgt == Tgt.None) return;
@@ -501,8 +622,9 @@ public static class TurnSim
         sb.Append(remaining).Append('|').Append(p.Energy).Append(',').Append(p.Strength).Append(',')
           .Append(p.Dexterity).Append(',').Append(p.Weak).Append(',').Append(p.Frail).Append(',')
           .Append(p.Block).Append(',').Append(p.Vulnerable).Append(',').Append(p.Vigor).Append(',').Append(p.BlockPerAttack).Append(',').Append(p.ExhaustedThisTurn ? 1 : 0)
-          .Append(',').Append(p.SelfDamageThisTurn).Append(',').Append(p.Intangible ? 1 : 0).Append('|');
-        foreach (var x in e) sb.Append(x.Hp).Append(':').Append(x.Block).Append(':').Append(x.Vulnerable).Append(':').Append(x.Weak).Append(':').Append(x.Strength).Append(':').Append(x.Doom).Append(':').Append(x.Capped ? x.CapRemaining : -1).Append(';');
+          .Append(',').Append(p.SelfDamageThisTurn).Append(',').Append(p.Intangible ? 1 : 0).Append(',').Append(p.DoubleNextBlockCards).Append(',').Append(p.AttackedThisTurn ? 1 : 0)
+          .Append(',').Append(p.CardsPlayedThisTurn).Append(',').Append(p.EchoCards).Append(',').Append(p.FirstShivUsed ? 1 : 0).Append('|');
+        foreach (var x in e) sb.Append(x.Hp).Append(':').Append(x.Block).Append(':').Append(x.Vulnerable).Append(':').Append(x.Weak).Append(':').Append(x.Strength).Append(':').Append(x.Doom).Append(':').Append(x.CurlUpArmed ? x.BufferHits + 1000 : x.BufferHits).Append(':').Append(x.Capped ? x.CapRemaining : -1).Append(';');
         return sb.ToString();
     }
 }

@@ -278,6 +278,56 @@ public class TurnSimTests
     }
 
     [Fact]
+    public void Unmovable_DoublesTheFirstBlockCard_BiggestChosen()
+    {
+        // Unmovable doubles the first block-gaining card each turn. One Defend(5) → 10; 20 incoming leaves 10.
+        var p = new TurnSim.Player { Energy = 1, DoubleNextBlockCards = 1 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 20) }, new List<Card> { Defend(5) });
+        Assert.Equal(10, r.MinHpLost);
+
+        // Only the FIRST is doubled — the sim doubles the bigger: Defend(5)→10 + Defend(3)→3 = 13; 30−13 = 17.
+        var p2 = new TurnSim.Player { Energy = 2, DoubleNextBlockCards = 1 };
+        var r2 = TurnSim.Solve(p2, new[] { E(100, intent: 30) }, new List<Card> { Defend(5), Defend(3) });
+        Assert.Equal(17, r2.MinHpLost);
+    }
+
+    [Fact]
+    public void Afterimage_GainsBlockOnEveryCardPlayed()
+    {
+        // +2 block per card. Two Defend(5) → (5+2)+(5+2) = 14 block; 20 incoming leaves 6.
+        var p = new TurnSim.Player { Energy = 2, BlockPerCardPlayed = 2 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 20) }, new List<Card> { Defend(5), Defend(5) });
+        Assert.Equal(6, r.MinHpLost);
+    }
+
+    [Fact]
+    public void FeelNoPain_GainsBlockWhenExhausting()
+    {
+        // Feel No Pain 3: playing a self-exhausting card grants 3 block. 10 incoming → 7.
+        var p = new TurnSim.Player { Energy = 1, BlockPerExhaust = 3 };
+        var exhaustCard = new Card { Name = "Exh", Cost = 1, Exhausts = true };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 10) }, new List<Card> { exhaustCard });
+        Assert.Equal(7, r.MinHpLost);
+    }
+
+    [Fact]
+    public void Lethality_BoostsFirstAttackOnly()
+    {
+        // Lethality +50%: first Strike 6 → 9, second → 6 = 15 (not 18).
+        var p = new TurnSim.Player { Energy = 2, FirstAttackBonusPct = 50 };
+        var r = TurnSim.Solve(p, new[] { E(100) }, new List<Card> { Strike(6), Strike(6) });
+        Assert.Equal(15, r.MaxDamage);
+    }
+
+    [Fact]
+    public void Tank_DoublesIncomingDamage()
+    {
+        var p = new TurnSim.Player { Energy = 0, IncomingMultPct = 200 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 10) }, new List<Card>());
+        Assert.Equal(20, r.MinHpLost);
+    }
+
+    [Fact]
     public void TungstenRod_ReducesEachHitByOne()
     {
         // 8 damage ×2 hits, −1 per hit → 7 ×2 = 14 (not 16).
@@ -394,6 +444,146 @@ public class TurnSimTests
         var r = TurnSim.Solve(P(1), new[] { E(100) }, new List<Card> { buff, Strike(6) });
         Assert.Equal(8, r.MaxDamage);
         Assert.True(r.Nodes > 0);
+    }
+
+    [Fact]
+    public void Tracking_MultipliesDamageVsWeakEnemies()
+    {
+        var p = new TurnSim.Player { Energy = 1, WeakTargetMult = 2 };
+        var e = new TurnSim.Enemy { Hp = 100, Weak = 1 };
+        var r = TurnSim.Solve(p, new[] { e }, new List<Card> { Strike(6) });
+        Assert.Equal(12, r.MaxDamage);
+    }
+
+    [Fact]
+    public void Cruelty_RaisesTheVulnerableMultiplier()
+    {
+        var p = new TurnSim.Player { Energy = 1, VulnBonusPct = 25 };   // 1.5 → 1.75
+        var e = new TurnSim.Enemy { Hp = 100, Vulnerable = 1 };
+        var r = TurnSim.Solve(p, new[] { e }, new List<Card> { Strike(10) });
+        Assert.Equal(17, r.MaxDamage);   // floor(10 × 1.75)
+    }
+
+    [Fact]
+    public void Juggernaut_DealsDamageWhenYouGainBlock()
+    {
+        var p = new TurnSim.Player { Energy = 1, DamageOnBlockGain = 5 };
+        var r = TurnSim.Solve(p, new[] { E(100) }, new List<Card> { Defend(5) });
+        Assert.Equal(5, r.MaxDamage);
+    }
+
+    [Fact]
+    public void SerpentForm_DealsDamagePerCardPlayed()
+    {
+        var p = new TurnSim.Player { Energy = 2, DamagePerCard = 3 };
+        var r = TurnSim.Solve(p, new[] { E(100) }, new List<Card> { Defend(5), Defend(5) });
+        Assert.Equal(6, r.MaxDamage);   // 3 per card × 2
+    }
+
+    [Fact]
+    public void Rupture_GainsStrengthWhenACardCostsHp()
+    {
+        var p = new TurnSim.Player { Energy = 2, StrOnHpLoss = 2 };
+        var blood = new Card { Name = "Blood", Cost = 1, SelfDamageOnPlay = 1 };
+        var r = TurnSim.Solve(p, new[] { E(100) }, new List<Card> { blood, Strike(6) });
+        Assert.Equal(8, r.MaxDamage);   // Blood → +2 Str, then Strike 6+2
+    }
+
+    [Fact]
+    public void DanseMacabre_GainsBlockPerExpensiveCard()
+    {
+        var p = new TurnSim.Player { Energy = 2, BlockOnExpensiveCard = 3 };
+        var big = new Card { Name = "Big", Cost = 2, Damage = 8, AttackTarget = Tgt.OneEnemy };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 20) }, new List<Card> { big });
+        Assert.Equal(17, r.MinHpLost);   // cost≥2 → +3 block
+    }
+
+    [Fact]
+    public void MonarchsGaze_LowersHitEnemyStrength()
+    {
+        var p = new TurnSim.Player { Energy = 1, EnemyStrDownOnHit = 2 };
+        var e = new TurnSim.Enemy { Hp = 100, IntentDamage = 10, IntentHits = 1 };
+        var r = TurnSim.Solve(p, new[] { e }, new List<Card> { Strike(6) });
+        Assert.Equal(8, r.MinHpLost);   // hit → −2 Str → 10 lands as 8
+    }
+
+    [Fact]
+    public void Buffer_NegatesTheLargestIncomingHit()
+    {
+        var p = new TurnSim.Player { Energy = 0, BufferHits = 1 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 8, hits: 2) }, new List<Card>());
+        Assert.Equal(8, r.MinHpLost);   // two 8s, largest negated → 8
+    }
+
+    [Fact]
+    public void EchoForm_DoublesTheFirstCard()
+    {
+        var p = new TurnSim.Player { Energy = 1, EchoCards = 1 };
+        var r = TurnSim.Solve(p, new[] { E(100) }, new List<Card> { Strike(6) });
+        Assert.Equal(12, r.MaxDamage);   // played twice
+    }
+
+    [Fact]
+    public void Fasten_AddsBlockToDefendCards()
+    {
+        var p = new TurnSim.Player { Energy = 1, DefendBlockBonus = 3 };
+        var defend = new Card { Name = "Defend", Cost = 1, Block = 5, IsDefend = true };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 20) }, new List<Card> { defend });
+        Assert.Equal(12, r.MinHpLost);   // 20 − (5+3)
+    }
+
+    [Fact]
+    public void Accuracy_BoostsShivDamage()
+    {
+        var p = new TurnSim.Player { Energy = 1, ShivDamageBonus = 4 };
+        var shiv = new Card { Name = "Shiv", Cost = 0, Damage = 4, Hits = 1, AttackTarget = Tgt.OneEnemy, IsShiv = true };
+        var r = TurnSim.Solve(p, new[] { E(100) }, new List<Card> { shiv });
+        Assert.Equal(8, r.MaxDamage);
+    }
+
+    [Fact]
+    public void SleightOfFlesh_DealsDamageWhenYouApplyADebuff()
+    {
+        var p = new TurnSim.Player { Energy = 1, DamageOnDebuff = 3 };
+        var weaken = new Card { Name = "Weaken", Cost = 1, ApplyWeak = 1, WeakTarget = Tgt.OneEnemy };
+        var r = TurnSim.Solve(p, new[] { E(100) }, new List<Card> { weaken });
+        Assert.Equal(3, r.MaxDamage);
+    }
+
+    [Fact]
+    public void Panache_HitsAllEnemiesEveryFifthCard()
+    {
+        var p = new TurnSim.Player { Energy = 5, PanacheDmg = 10 };
+        var hand = new List<Card>();
+        for (int i = 0; i < 5; i++) hand.Add(new Card { Name = "D", Cost = 1, Block = 1 });
+        var r = TurnSim.Solve(p, new[] { E(100) }, hand);
+        Assert.Equal(10, r.MaxDamage);
+    }
+
+    [Fact]
+    public void EnemyCurlUp_GainsBlockAfterFirstHit()
+    {
+        // First Strike lands full (6), enemy curls up for 3 block, second Strike does 6−3 = 3 → 9 total.
+        var e = new TurnSim.Enemy { Hp = 100, BlockOnFirstHit = 3, CurlUpArmed = true };
+        var r = TurnSim.Solve(P(2), new[] { e }, new List<Card> { Strike(6), Strike(6) });
+        Assert.Equal(9, r.MaxDamage);
+    }
+
+    [Fact]
+    public void EnemyBuffer_NegatesYourHit()
+    {
+        var e = new TurnSim.Enemy { Hp = 100, BufferHits = 1 };
+        var r = TurnSim.Solve(P(1), new[] { e }, new List<Card> { Strike(6) });
+        Assert.Equal(0, r.MaxDamage);
+    }
+
+    [Fact]
+    public void Sneaky_ReactiveBlockMitigatesIncoming()
+    {
+        // Sneaky grants block per enemy attack (gained during the enemy turn) → reduces incoming only.
+        var p = new TurnSim.Player { Energy = 0, ReactiveBlock = 6 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 20) }, new List<Card>());
+        Assert.Equal(14, r.MinHpLost);
     }
 
     [Fact]
