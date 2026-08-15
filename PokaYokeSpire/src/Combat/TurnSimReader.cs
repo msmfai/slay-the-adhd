@@ -59,15 +59,44 @@ public static class TurnSimReader
             Intangible = Has(meC, "IntangiblePower"),   // caps each hit you take to 1
             Vigor = PowerAmount(meC, "VigorPower"),      // Akabeko/Patter: flat bonus to your next attack
             BlockPerAttack = PowerAmount(meC, "RagePower"),   // Rage: block gained per Attack played this turn
+            BlockPerCardPlayed = PowerAmount(meC, "AfterimagePower"),   // block on every card played
+            BlockPerExhaust = PowerAmount(meC, "FeelNoPainPower"),      // block per card exhausted
+            FirstAttackBonusPct = PowerAmount(meC, "LethalityPower"),   // first attack each turn +this %
+            IncomingMultPct = Has(meC, "TankPower") ? 200 : 0,          // Tank: incoming ×2
+            WeakTargetMult = PowerAmount(meC, "TrackingPower"),         // Tracking: ×vs Weak enemies
+            VulnBonusPct = PowerAmount(meC, "CrueltyPower"),            // Cruelty: +Vulnerable %
+            DamageOnBlockGain = PowerAmount(meC, "JuggernautPower"),    // Juggernaut
+            DamagePerCard = PowerAmount(meC, "SerpentFormPower"),       // Serpent Form
+            StrOnHpLoss = PowerAmount(meC, "RupturePower"),             // Rupture
+            BlockOnExpensiveCard = PowerAmount(meC, "DanseMacabrePower"),  // Danse Macabre
+            BufferHits = PowerAmount(meC, "BufferPower"),               // Buffer
+            EnemyStrDownOnHit = PowerAmount(meC, "MonarchsGazePower"),  // Monarch's Gaze
+            PanacheDmg = PowerAmount(meC, "PanachePower"),              // Panache
+            DamageOnDebuff = PowerAmount(meC, "SleightOfFleshPower"),   // Sleight of Flesh
+            EchoCards = PowerAmount(meC, "EchoFormPower"),              // Echo Form
+            DefendBlockBonus = PowerAmount(meC, "FastenPower"),         // Fasten
+            ShivDamageBonus = PowerAmount(meC, "AccuracyPower"),        // Accuracy
+            FirstShivBonus = PowerAmount(meC, "PhantomBladesPower"),    // Phantom Blades
+            StrOnColorless = PowerAmount(meC, "ArsenalPower"),          // Arsenal
+            BlockOnEthereal = PowerAmount(meC, "SpiritOfAshPower"),     // Spirit of Ash
+            BlockOnDoomApplied = PowerAmount(meC, "ShroudPower"),       // Shroud
         };
         ReadMitigationRelics(mePlayer, ref snap.Player);
-        // Seed "a card was exhausted this turn" from combat history (Evil Eye's condition) — the sim also
-        // sets it when it plays an exhaust card, but a card exhausted BEFORE this snapshot only shows here.
+        // Seed "a card was exhausted this turn" (Evil Eye) and Unmovable's remaining block-doubles from combat
+        // history — the sim also updates both as it plays, but events BEFORE this snapshot only show here.
         try
         {
             var hist = CombatManager.Instance?.History;
             if (hist != null)
+            {
                 snap.Player.ExhaustedThisTurn = hist.Entries.OfType<CardExhaustedEntry>().Any(e => e.HappenedThisTurn(state) && e.Actor == meC);
+                int unmovable = PowerAmount(meC, "UnmovablePower");   // doubles your first N block-gaining cards each turn
+                if (unmovable > 0)
+                {
+                    int blockCardsThisTurn = hist.Entries.OfType<BlockGainedEntry>().Count(e => e.HappenedThisTurn(state) && e.Actor == meC && e.Props.IsCardOrMonsterMove());
+                    snap.Player.DoubleNextBlockCards = System.Math.Max(0, unmovable - blockCardsThisTurn);
+                }
+            }
         }
         catch { }
         FlagUnmodeledPowers(meC, "player");
@@ -80,6 +109,8 @@ public static class TurnSimReader
             var (dmg, hits) = ReadIntent(e);
             var hardShell = FindPower(e, "HardenedShellPower");   // caps HP damage taken this turn (per-turn total)
             var hardToKill = FindPower(e, "HardToKillPower");     // Exoskeleton: caps EACH hit (per-hit)
+            var curlUp = FindPower(e, "CurlUpPower");             // gains block after first hit
+            var enemyBuffer = FindPower(e, "BufferPower");        // negates your next N hits
 
             // Per-hit cap: Hard to Kill (Amount), Slippery / Intangible (→1). Take the tightest.
             int perHitCap = hardToKill?.Amount ?? 0;
@@ -107,6 +138,9 @@ public static class TurnSimReader
                 CapRemaining = hardShell?.DisplayAmount ?? 0,   // remaining allowance this turn
                 PerHitCap = perHitCap,                          // each hit capped to this
                 DamageTakenPct = dtPct == 100 ? 0 : dtPct,      // % of damage this enemy takes
+                BlockOnFirstHit = curlUp?.Amount ?? 0,          // Curl Up
+                CurlUpArmed = curlUp != null,
+                BufferHits = enemyBuffer?.Amount ?? 0,          // enemy Buffer
             });
             snap.EnemyRefs.Add(e);
             FlagUnmodeledPowers(e, "enemy");
@@ -114,8 +148,19 @@ public static class TurnSimReader
         if (enemies.Count == 0) return null;
         snap.Enemies = enemies.ToArray();
 
+        // Sneaky: gain block per enemy that attacks this turn — deterministic given their intents. This
+        // mitigation is gained during the enemy turn, so it only reduces incoming (ReactiveBlock).
+        int sneaky = PowerAmount(meC, "SneakyPower");
+        if (sneaky > 0)
+        {
+            int attackers = 0;
+            foreach (var en in snap.Enemies) if (en.IntentDamage > 0) attackers++;
+            snap.Player.ReactiveBlock = sneaky * attackers;
+        }
+
         // ── hand ──
         int endTurnSelf = 0;
+        bool corruption = Has(meC, "CorruptionPower");   // Skills cost 0 and exhaust
         foreach (var cm in pcs.Hand.Cards)
         {
             try
@@ -130,7 +175,11 @@ public static class TurnSimReader
                 }
 
                 var card = ReadCard(cm);
-                if (card != null) snap.Hand.Add(card);
+                if (card != null)
+                {
+                    if (corruption && cm.Type == CardType.Skill) { card.Cost = 0; card.Exhausts = true; }   // Corruption
+                    snap.Hand.Add(card);
+                }
             }
             catch { /* unreadable card -> excluded (worst case) */ }
         }
@@ -232,6 +281,10 @@ public static class TurnSimReader
             card.Hits = ReadHits(cm);
         }
         card.Exhausts = cm.Keywords.Contains(CardKeyword.Exhaust);
+        card.IsDefend = cm.Tags.Contains(CardTag.Defend);       // Fasten
+        card.IsShiv = cm.Tags.Contains(CardTag.Shiv);           // Accuracy / Phantom Blades
+        card.IsEthereal = cm.Keywords.Contains(CardKeyword.Ethereal);   // Spirit of Ash
+        try { card.IsColorless = cm.VisualCardPool?.IsColorless ?? false; } catch { }   // Arsenal
 
         // bespoke, state-dependent cards (behaviour lives in OnPlay; detect by class name)
         if (name == "BodySlam") { card.Dynamic = TurnSim.Dyn.BodySlam; card.AttackTarget = TurnSim.Tgt.OneEnemy; }
@@ -311,6 +364,11 @@ public static class TurnSimReader
         "StrengthPower", "DexterityPower", "WeakPower", "FrailPower", "VulnerablePower",
         "ShrinkPower", "IntangiblePower", "HardenedShellPower", "HardToKillPower", "PlatingPower", "MetallicizePower",
         "VigorPower", "RagePower", "SlipperyPower", "SoarPower", "FlutterPower", "GuardedPower", "ColossusPower",
+        "UnmovablePower", "AfterimagePower", "FeelNoPainPower", "LethalityPower", "TankPower", "CorruptionPower",
+        "TrackingPower", "CrueltyPower", "JuggernautPower", "SerpentFormPower", "RupturePower", "DanseMacabrePower",
+        "BufferPower", "MonarchsGazePower", "PanachePower", "SleightOfFleshPower", "EchoFormPower", "FastenPower",
+        "AccuracyPower", "PhantomBladesPower", "ArsenalPower", "SpiritOfAshPower", "ShroudPower", "CurlUpPower",
+        "SneakyPower", "ThornsPower", "FlameBarrierPower",
     };
 
     /// Relics that change how much HP you lose to enemy attacks this turn. Auto Strength/Dex/Plating/Vigor

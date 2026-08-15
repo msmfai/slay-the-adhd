@@ -26,11 +26,17 @@ public static class ScheduledDamage
         int n = enemyRefs.Count;
         var outp = new int[n];
 
-        int inferno = 0;
+        int inferno = 0, thorns = 0;
         try
         {
             var meC = LocalContext.GetMe((IEnumerable<Creature>)combatState.Creatures);
-            if (meC != null) inferno = CombatSnapshot.PowerAmount(meC, "InfernoPower");
+            if (meC != null)
+            {
+                inferno = CombatSnapshot.PowerAmount(meC, "InfernoPower");
+                // Thorns / Flame Barrier: each hit of the enemy's queued attack takes this much back — that
+                // damage lands between now and your next turn, so it belongs in the offense gem's +d.
+                thorns = CombatSnapshot.PowerAmount(meC, "ThornsPower") + CombatSnapshot.PowerAmount(meC, "FlameBarrierPower");
+            }
         }
         catch { }
 
@@ -47,6 +53,8 @@ public static class ScheduledDamage
                 dealt += Take(ref hp, PoisonNextTurn(e));
                 // constrict — flat
                 dealt += Take(ref hp, CombatSnapshot.PowerAmount(e, "ConstrictPower"));
+                // thorns — this enemy's attack recoils onto it, once per hit it throws at you
+                if (thorns > 0) dealt += Take(ref hp, thorns * AttackHits(e));
                 // Vulnerable ticks down at the end of the enemy's turn ...
                 int vulnAfter = vuln > 0 ? vuln - 1 : 0;
                 // ... so Inferno at YOUR turn start sees the decremented value
@@ -57,6 +65,23 @@ public static class ScheduledDamage
             catch { outp[i] = 0; }
         }
         return outp;
+    }
+
+    /// Total number of hits in this enemy's queued attack (0 if it isn't attacking) — thorns recoils once
+    /// per hit, so this scales the thorns damage the enemy takes.
+    private static int AttackHits(Creature enemy)
+    {
+        try
+        {
+            var move = enemy.Monster?.NextMove;
+            if (move == null) return 0;
+            int hits = 0;
+            foreach (var intent in move.Intents)
+                if (intent is MegaCrit.Sts2.Core.MonsterMoves.Intents.AttackIntent atk && atk.DamageCalc != null)
+                    hits += atk.Repeats < 1 ? 1 : atk.Repeats;
+            return hits;
+        }
+        catch { return 0; }
     }
 
     private static int Take(ref int hp, int dmg)
