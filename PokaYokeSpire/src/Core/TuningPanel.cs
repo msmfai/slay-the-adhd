@@ -29,11 +29,26 @@ public partial class TuningPanel : CanvasLayer
         catch (System.Exception e) { DebugLog.Error("TuningPanel._Ready", e); }
     }
 
+    /// The configured toggle key (mod config → dropdown), mapped to a Godot key. Defaults to F9.
+    private static Key MenuKey() => Config.TuningMenuKey switch
+    {
+        Config.ToggleMenuKey.F8 => Key.F8,
+        Config.ToggleMenuKey.F7 => Key.F7,
+        Config.ToggleMenuKey.F6 => Key.F6,
+        Config.ToggleMenuKey.F10 => Key.F10,
+        Config.ToggleMenuKey.F11 => Key.F11,
+        Config.ToggleMenuKey.F12 => Key.F12,
+        Config.ToggleMenuKey.Insert => Key.Insert,
+        Config.ToggleMenuKey.Home => Key.Home,
+        Config.ToggleMenuKey.Backtick => Key.Quoteleft,
+        _ => Key.F9,
+    };
+
     public override void _UnhandledKeyInput(InputEvent e)
     {
         try
         {
-            if (e is InputEventKey { Pressed: true, Echo: false, Keycode: Key.F9 })
+            if (e is InputEventKey { Pressed: true, Echo: false } ek && ek.Keycode == MenuKey())
             {
                 _window.Visible = !_window.Visible;
                 if (_window.Visible) RefreshValues();
@@ -55,7 +70,7 @@ public partial class TuningPanel : CanvasLayer
 
         // ── title bar (drag handle) ──
         var title = new HBoxContainer { Name = "TitleBar" };
-        title.AddChild(new Label { Text = "Poka-Yoke Tuning  (F9)", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
+        title.AddChild(new Label { Text = $"Slay The Math Tuning  ({Config.TuningMenuKey})", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
         var close = new Button { Text = "×" };
         close.Pressed += () => _window.Visible = false;
         title.AddChild(close);
@@ -94,6 +109,9 @@ public partial class TuningPanel : CanvasLayer
         var reset = new Button { Text = "Reset" };
         reset.Pressed += OnReset;
         footer.AddChild(reset);
+        var report = new Button { Text = "Report broken turn" };
+        report.Pressed += OnReportTurn;
+        footer.AddChild(report);
         _status = new Label { Text = "", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         footer.AddChild(_status);
         vb.AddChild(footer);
@@ -202,6 +220,13 @@ public partial class TuningPanel : CanvasLayer
         RefreshValues();
         LiveTuning.RaiseReloaded();
         _status.Text = "reset to saved ✓";
+    }
+
+    /// Dump the complete current turn/hand state to a file for diagnosing a wrong gem.
+    private void OnReportTurn()
+    {
+        var path = Features.TurnSimDriverFeature.DumpBrokenTurn();
+        _status.Text = $"reported → {System.IO.Path.GetFileName(path)}";
     }
 
     private void OnTitleInput(InputEvent e)

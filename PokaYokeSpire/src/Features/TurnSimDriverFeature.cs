@@ -1,10 +1,15 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using HarmonyLib;
-using MegaCrit.Sts2.Core.Combat;             // CombatState
+using MegaCrit.Sts2.Core.Combat;             // CombatState, CombatManager
 using MegaCrit.Sts2.Core.Context;            // LocalContext
+using MegaCrit.Sts2.Core.Entities.Cards;     // CardPile
 using MegaCrit.Sts2.Core.Entities.Creatures; // Creature
+using MegaCrit.Sts2.Core.Entities.Players;   // Player, PlayerCombatState
 using MegaCrit.Sts2.Core.Nodes.Combat;       // NEnergyCounter
 using PokaYokeSpire.Combat;                   // TurnSim, TurnSimReader, IncomingDamage, ScheduledDamage
 using PokaYokeSpire.Core;                     // Feature, Config, DebugLog
@@ -44,8 +49,10 @@ internal static class TurnSimDriverFeature
     {
         var sim = TurnSimReader.Read(state);
         var p = IncomingDamage.Compute(state);
-        // do-nothing incoming = enemy attacks (exact game hook) + Burn/Toxic-style end-of-turn self-damage
-        int doNothing = (p.Valid ? p.NetHpLoss : 0) + (sim?.Player.EndTurnSelfDamage ?? 0);
+        // do-nothing HP loss = end the turn NOW, play nothing. Use the sim's own HpLost so it and the min
+        // share one block-correct model (blockable Burn/Toxic absorbed by block; unblockable added after).
+        // Fall back to the exact game hook only when there's no sim snapshot (not the player's turn).
+        int doNothing = sim != null ? TurnSim.HpLost(sim.Player, sim.Enemies) : (p.Valid ? p.NetHpLoss : 0);
         int playerHp = 0;
         try { playerHp = LocalContext.GetMe((System.Collections.Generic.IEnumerable<Creature>)state.Creatures)?.CurrentHp ?? 0; } catch { }
         long g = Interlocked.Increment(ref _gen);
@@ -66,16 +73,120 @@ internal static class TurnSimDriverFeature
             _latest = new Out { Result = r, EnemyRefs = sim.EnemyRefs, Scheduled = sched, DoNothingIncoming = doNothing, PlayerHp = playerHp, Gen = g, HasSim = true };
             if (r.Truncated) DebugLog.Warn($"turnsim hit the node budget ({r.Nodes}) — result is a conservative bound (cards={sim.Hand.Count}, enemies={sim.Enemies.Length})");
             if (DebugLog.Enabled)
-                DebugLog.Debug($"turnsim solved: maxDmg={r.MaxDamage} perEnemy=[{string.Join(",", r.MaxPerEnemy)}] minHp={r.MinHpLost} (exact do-nothing={doNothing}) killAll={r.CanKillAll} nodes={r.Nodes} in {sim.Hand.Count} cards");
-
-            // When defense drops below the do-nothing, dump the hand so the CAUSE is unambiguous:
-            // a real block/Weaken card explains it; a pure attack (dN,blk0,wk0) would be a bug.
-            if (r.MinHpLost < doNothing && DebugLog.Enabled)
-            {
-                var sb = new System.Text.StringBuilder();
-                foreach (var c in sim.Hand) sb.Append($"{c.Name}(d{c.Damage},blk{c.Block},wk{c.ApplyWeak},vul{c.ApplyVulnerable},x{(c.XCost ? 1 : 0)}) ");
-                DebugLog.Warn($"defense {doNothing}->{r.MinHpLost}: hand = {sb}");
-            }
+                DebugLog.Debug($"turnsim solved: maxDmg={r.MaxDamage} perEnemy=[{string.Join(",", r.MaxPerEnemy)}] minHp={r.MinHpLost} (do-nothing={doNothing}) killAll={r.CanKillAll} nodes={r.Nodes} in {sim.Hand.Count} cards");
         });
+    }
+
+    /// F9 panel "Report broken turn" — dump the COMPLETE current turn state to a dedicated file so a wrong
+    /// gem can be diagnosed from ground truth: the raw game hand vs what the reader captured (a mismatch is
+    /// the smoking gun), every card's read effect, all player fields + unmodeled powers, enemy intents, and
+    /// the cached sim result. Fail-open; never throws into the game.
+    public static string DumpBrokenTurn()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("==================== BROKEN TURN REPORT ====================");
+            CombatState? state = null;
+            try { state = CombatManager.Instance?.DebugOnlyGetState(); } catch { }
+            if (state == null) { DebugLog.Warn("BROKEN TURN: no active combat state"); return "no combat"; }
+
+            Player? me = LocalContext.GetMe(state);
+            Creature? meC = LocalContext.GetMe((IEnumerable<Creature>)state.Creatures);
+            var pcs = me?.PlayerCombatState;
+
+            // ── full combat / player state ──
+            try { sb.AppendLine($"combat: side={state.CurrentSide} inProgress={CombatManager.Instance?.IsInProgress}"); } catch { }
+            try { sb.AppendLine($"player: hp={meC?.CurrentHp}/{meC?.MaxHp} block={meC?.Block} energy={pcs?.Energy}/{pcs?.MaxEnergy}"); } catch { }
+            try { sb.Append("powers: "); foreach (var pw in meC!.Powers) sb.Append($"{pw.GetType().Name}={pw.Amount} "); sb.AppendLine(); } catch { }
+            try { sb.Append("relics: "); foreach (var r in me!.Relics) sb.Append(r.GetType().Name).Append(' '); sb.AppendLine(); } catch { }
+            try { sb.Append("potions: "); foreach (var po in me!.Potions) if (po != null) sb.Append(po.GetType().Name).Append(' '); sb.AppendLine(); } catch { }
+
+            // ── ALL card piles (draw pile matters for the draw-leak question) ──
+            void DumpPile(string label, CardPile? pile)
+            {
+                try
+                {
+                    if (pile == null) { sb.AppendLine($"{label}: (null)"); return; }
+                    sb.Append($"{label} ({pile.Cards.Count}): ");
+                    foreach (var c in pile.Cards) sb.Append(c.GetType().Name).Append(' ');
+                    sb.AppendLine();
+                }
+                catch { sb.AppendLine($"{label}: (unreadable)"); }
+            }
+            int rawHand = 0; try { rawHand = pcs?.Hand.Cards.Count ?? 0; } catch { }
+            DumpPile("HAND", pcs?.Hand);
+            DumpPile("draw pile", pcs?.DrawPile);
+            DumpPile("discard pile", pcs?.DiscardPile);
+            DumpPile("exhaust pile", pcs?.ExhaustPile);
+
+            // ── each hand card: RAW game vars vs what the reader interpreted ──
+            sb.AppendLine("hand cards (raw game DynamicVars):");
+            try
+            {
+                foreach (var cm in pcs!.Hand.Cards)
+                {
+                    sb.Append($"    {cm.GetType().Name} type={cm.Type} vars={{");
+                    try { foreach (var v in cm.DynamicVars.Values) sb.Append($"{v.Name}={v.BaseValue},"); } catch { }
+                    sb.Append("} keywords={");
+                    try { foreach (var k in cm.Keywords) sb.Append(k).Append(','); } catch { }
+                    sb.Append("} tags={");
+                    try { foreach (var t in cm.Tags) sb.Append(t).Append(','); } catch { }
+                    sb.AppendLine("}");
+                }
+            }
+            catch { }
+
+            // ── what the READER captured — the snapshot the sim actually solves ──
+            var snap = TurnSimReader.Read(state);
+            if (snap != null)
+            {
+                var p = snap.Player;
+                sb.AppendLine($"snapshot player: energy={p.Energy} str={p.Strength} dex={p.Dexterity} weak={p.Weak} frail={p.Frail} vuln={p.Vulnerable} shrink={p.Shrink} intangible={p.Intangible} block={p.Block} vigor={p.Vigor} reactiveBlk={p.ReactiveBlock} endTurnBlockable={p.EndTurnSelfDamageBlockable} endTurnUnblockable={p.EndTurnSelfDamage}");
+                sb.AppendLine($"snapshot hand ({snap.Hand.Count}) — the sim's interpretation:");
+                foreach (var c in snap.Hand)
+                    sb.AppendLine($"    {c.Name}: cost={c.Cost} dmg={c.Damage}x{c.Hits} tgt={c.AttackTarget} block={c.Block} flatBlk={c.FlatBlock} applyVuln={c.ApplyVulnerable} applyWeak={c.ApplyWeak} strGain={c.StrengthGain} xcost={c.XCost} exhaust={c.Exhausts} dyn={c.Dynamic}");
+                sb.AppendLine($"enemies ({snap.Enemies.Length}):");
+                for (int i = 0; i < snap.Enemies.Length; i++)
+                {
+                    var e = snap.Enemies[i];
+                    sb.AppendLine($"    [{i}] hp={e.Hp} block={e.Block} vuln={e.Vulnerable} weak={e.Weak} str={e.Strength} intent={e.IntentDamage}x{e.IntentHits} perHitCap={e.PerHitCap} dmgTakenPct={e.DamageTakenPct} doom={e.Doom}");
+                }
+                // full raw enemy powers too
+                try
+                {
+                    int ei = 0;
+                    foreach (var en in state.Enemies)
+                    {
+                        if (en == null || en.CurrentHp <= 0) continue;
+                        sb.Append($"    enemy[{ei}] {en.GetType().Name} hp={en.CurrentHp}/{en.MaxHp} block={en.Block} powers=");
+                        foreach (var pw in en.Powers) sb.Append($"{pw.GetType().Name}={pw.Amount} ");
+                        sb.AppendLine();
+                        ei++;
+                    }
+                }
+                catch { }
+                sb.AppendLine($">>> HAND DIVERGENCE: rawHand={rawHand} snapshotHand={snap.Hand.Count}   (rawHand != snapshotHand ⇒ the reader captured a DIFFERENT hand than the game shows)");
+            }
+
+            var o = _latest;
+            if (o != null && o.HasSim)
+                sb.AppendLine($"sim result: maxDmg={o.Result.MaxDamage} perEnemy=[{string.Join(",", o.Result.MaxPerEnemy)}] minHp={o.Result.MinHpLost} killAll={o.Result.CanKillAll} nodes={o.Result.Nodes} truncated={o.Result.Truncated} doNothing={o.DoNothingIncoming} scheduled=[{string.Join(",", o.Scheduled)}] gen={o.Gen}");
+            sb.AppendLine("===========================================================");
+
+            string report = sb.ToString();
+            DebugLog.Warn(report);
+            try
+            {
+                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    "Library", "Application Support", "SlayTheSpire2", "modding", "logs");
+                var path = Path.Combine(dir, $"broken-turn-{DateTime.Now:yyyyMMdd-HHmmss}.txt");
+                File.WriteAllText(path, report);
+                DebugLog.Warn($"broken-turn report written to {path}");
+                return path;
+            }
+            catch { return "(logged)"; }
+        }
+        catch (System.Exception e) { DebugLog.Error("DumpBrokenTurn", e); return "(error)"; }
     }
 }

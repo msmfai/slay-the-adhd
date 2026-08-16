@@ -26,6 +26,13 @@ public class Config : SimpleModConfig
     /// Off by default: release uses the values baked into the DLL at build. Turn on to tune live.
     public static bool LiveTuning { get; set; } = false;
 
+    /// Which key opens the in-game tuning / debug menu (with the "Report broken turn" button).
+    /// Default F9. Renders as a dropdown in the mod config.
+    public static ToggleMenuKey TuningMenuKey { get; set; } = ToggleMenuKey.F9;
+
+    /// Keys offered for the tuning/debug menu toggle (mapped to Godot keys in TuningPanel).
+    public enum ToggleMenuKey { F9, F8, F7, F6, F10, F11, F12, Insert, Home, Backtick }
+
     [ConfigSection("guards")]
     /// Confirm when ending turn with unspent energy AND a playable card in hand.
     public static bool GuardEndTurnEnergy { get; set; } = true;

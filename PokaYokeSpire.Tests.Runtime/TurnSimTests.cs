@@ -587,6 +587,35 @@ public class TurnSimTests
     }
 
     [Fact]
+    public void EndTurnBlockable_Burn_IsAbsorbedByLeftoverBlock()
+    {
+        // 15 block, 10 incoming, Burn 2 (blockable): block covers the enemy AND the Burn → 0 HP lost.
+        var p = new TurnSim.Player { Energy = 0, Block = 15, EndTurnSelfDamageBlockable = 2 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 10) }, new List<Card>());
+        Assert.Equal(0, r.MinHpLost);
+    }
+
+    [Fact]
+    public void EndTurnUnblockable_IgnoresBlock()
+    {
+        // Same numbers but the 2 is UNBLOCKABLE (BadLuck/Beckon) → block stops the enemy, the 2 still lands.
+        var p = new TurnSim.Player { Energy = 0, Block = 15, EndTurnSelfDamage = 2 };
+        var r = TurnSim.Solve(p, new[] { E(100, intent: 10) }, new List<Card>());
+        Assert.Equal(2, r.MinHpLost);
+    }
+
+    [Fact]
+    public void Colossus_HalvesDamageFromVulnerableEnemies()
+    {
+        var p = new TurnSim.Player { Energy = 0, HalveVulnerableEnemyDamage = true };
+        var vulnEnemy = new TurnSim.Enemy { Hp = 100, Vulnerable = 1, IntentDamage = 20, IntentHits = 1 };
+        Assert.Equal(10, TurnSim.Solve(p, new[] { vulnEnemy }, new List<Card>()).MinHpLost);   // 20 → 10
+
+        var plainEnemy = new TurnSim.Enemy { Hp = 100, IntentDamage = 20, IntentHits = 1 };     // not Vulnerable
+        Assert.Equal(20, TurnSim.Solve(p, new[] { plainEnemy }, new List<Card>()).MinHpLost);   // unaffected
+    }
+
+    [Fact]
     public void DoNothing_IsAlwaysAnOption()
     {
         // with no useful cards, offense is 0 and you take the full hit.
