@@ -80,6 +80,7 @@ public static class TurnSimReader
             StrOnColorless = PowerAmount(meC, "ArsenalPower"),          // Arsenal
             BlockOnEthereal = PowerAmount(meC, "SpiritOfAshPower"),     // Spirit of Ash
             BlockOnDoomApplied = PowerAmount(meC, "ShroudPower"),       // Shroud
+            HalveVulnerableEnemyDamage = Has(meC, "ColossusPower"),     // Colossus: half from Vulnerable attackers
         };
         ReadMitigationRelics(mePlayer, ref snap.Player);
         // Seed "a card was exhausted this turn" (Evil Eye) and Unmovable's remaining block-doubles from combat
@@ -123,7 +124,6 @@ public static class TurnSimReader
             if (Has(e, "SoarPower")) dtPct = dtPct * 50 / 100;
             if (Has(e, "FlutterPower")) dtPct = dtPct * 50 / 100;
             if (Has(e, "GuardedPower")) dtPct = dtPct * 50 / 100;
-            if (Has(e, "ColossusPower") && snap.Player.Vulnerable > 0) dtPct = dtPct * 50 / 100;
 
             enemies.Add(new TurnSim.Enemy
             {
@@ -159,7 +159,7 @@ public static class TurnSimReader
         }
 
         // ── hand ──
-        int endTurnSelf = 0;
+        int endTurnUnblockable = 0, endTurnBlockable = 0;
         bool corruption = Has(meC, "CorruptionPower");   // Skills cost 0 and exhaust
         foreach (var cm in pcs.Hand.Cards)
         {
@@ -170,8 +170,13 @@ public static class TurnSimReader
                 // blockable and HpLossVar is unblockable, but both are modeled conservatively as HP lost.
                 if (cm.HasTurnEndInHandEffect)
                 {
-                    if (cm.GetType().Name == "Regret") endTurnSelf += pcs.Hand.Cards.Count;   // lose HP = cards in hand
-                    else foreach (var v in cm.DynamicVars.Values) { var vn = v.GetType().Name; if (vn == "DamageVar" || vn == "HpLossVar") { endTurnSelf += (int)v.BaseValue; break; } }
+                    if (cm.GetType().Name == "Regret") endTurnUnblockable += pcs.Hand.Cards.Count;   // lose HP = cards in hand (unblockable)
+                    else foreach (var v in cm.DynamicVars.Values)
+                    {
+                        var vn = v.GetType().Name;
+                        if (vn == "DamageVar") { endTurnBlockable += (int)v.BaseValue; break; }     // Burn/Decay/Toxic — blockable
+                        if (vn == "HpLossVar") { endTurnUnblockable += (int)v.BaseValue; break; }   // BadLuck/Beckon — unblockable
+                    }
                 }
 
                 var card = ReadCard(cm);
@@ -183,7 +188,8 @@ public static class TurnSimReader
             }
             catch { /* unreadable card -> excluded (worst case) */ }
         }
-        snap.Player.EndTurnSelfDamage = endTurnSelf;
+        snap.Player.EndTurnSelfDamage = endTurnUnblockable;
+        snap.Player.EndTurnSelfDamageBlockable = endTurnBlockable;
         return snap;
     }
 

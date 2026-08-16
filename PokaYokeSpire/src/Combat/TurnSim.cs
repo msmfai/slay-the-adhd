@@ -47,7 +47,8 @@ public static class TurnSim
         public int Energy, Strength, Dexterity, Block;
         public int Weak, Frail, Vulnerable, Shrink;   // debuffs (presence, not magnitude)
         public bool Intangible;                       // caps EACH hit you take to 1
-        public int EndTurnSelfDamage;                 // Burn/Toxic etc. in hand: HP lost at end of turn
+        public int EndTurnSelfDamage;                 // UNBLOCKABLE end-of-turn (BadLuck/Beckon HpLossVar, Regret)
+        public int EndTurnSelfDamageBlockable;        // BLOCKABLE end-of-turn (Burn/Decay/Toxic DamageVar) — your block absorbs it
         public int SelfDamageThisTurn;                // HP-cost cards played (Hemokinesis/Offering/Bloodletting): unblockable
         public int Vigor;                             // flat bonus to your NEXT card attack, then consumed
         public int BlockPerAttack;                    // Rage: gain this much (Unpowered) block per Attack you play
@@ -57,6 +58,7 @@ public static class TurnSim
         public bool AttackedThisTurn;                 // has any attack been played yet (for Lethality)
         public int IncomingMultPct;                   // Tank: incoming enemy-attack damage ×this % (0 = 100%)
         public int ReactiveBlock;                     // Sneaky etc.: block gained during the enemy turn (mitigates their attacks only)
+        public bool HalveVulnerableEnemyDamage;       // Colossus: you take half damage from a Vulnerable attacker
         public int WeakTargetMult;                    // Tracking: your attacks vs Weak enemies ×this (0/1 = none)
         public int VulnBonusPct;                      // Cruelty: Vulnerable multiplier +this % (on top of 1.5)
         public int DamageOnBlockGain;                 // Juggernaut: deal this to an enemy whenever a card gives you block
@@ -176,9 +178,14 @@ public static class TurnSim
                 incoming += PerHitIncoming(e, p) * (e.IntentHits < 1 ? 1 : e.IntentHits);
             }
         }
-        int net = incoming - p.Block - p.ReactiveBlock;   // ReactiveBlock (Sneaky): mitigation gained during the enemy turn
-        if (net < 0) net = 0;
-        net += p.EndTurnSelfDamage + p.SelfDamageThisTurn;   // unblockable: end-of-turn (Burn/Toxic) + HP-cost cards played
+        // Blockable end-of-turn damage (Burn/Decay/Toxic) ticks at YOUR turn end → your block absorbs it
+        // FIRST; the enemy attacks then hit whatever block is left (plus reactive block gained on their turn).
+        int blockLeft = p.Block - p.EndTurnSelfDamageBlockable;
+        int burnNet = blockLeft < 0 ? -blockLeft : 0;
+        if (blockLeft < 0) blockLeft = 0;
+        int enemyNet = incoming - blockLeft - p.ReactiveBlock;   // ReactiveBlock (Sneaky): gained during the enemy turn
+        if (enemyNet < 0) enemyNet = 0;
+        int net = burnNet + enemyNet + p.EndTurnSelfDamage + p.SelfDamageThisTurn;   // + unblockable (HpLossVar/Regret/HP-cost)
         if (p.MaxHpLossThisTurn > 0 && net > p.MaxHpLossThisTurn) net = p.MaxHpLossThisTurn;   // Beating Remnant cap
         return net;
     }
@@ -187,6 +194,7 @@ public static class TurnSim
     private static int PerHitIncoming(in Enemy e, in Player p)
     {
         int perHit = Atk(e.IntentDamage, e.Strength, e.Weak > 0, false, p.Vulnerable > 0);
+        if (p.HalveVulnerableEnemyDamage && e.Vulnerable > 0) perHit /= 2;      // Colossus: half from a Vulnerable attacker
         if (p.IncomingMultPct > 0) perHit = perHit * p.IncomingMultPct / 100;   // Tank: incoming ×2
         if (p.Intangible && perHit > 1) perHit = 1;                              // Intangible caps EACH hit to 1
         perHit -= p.HpLossReductionPerHit;                                       // Tungsten Rod: −N per instance

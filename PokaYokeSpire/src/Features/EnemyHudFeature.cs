@@ -42,6 +42,7 @@ internal static class EnemyHud
     private struct Bases { public bool Has; public Vector2 Hb, Pc; }
     private static readonly Dictionary<ulong, Bases> _bases = new();
     private static readonly HashSet<ulong> _dumped = new();
+    private static readonly HashSet<ulong> _geoDumped = new();
 
     public static void OnReady(NCreature c)
     {
@@ -74,6 +75,8 @@ internal static class EnemyHud
         var intents = c.IntentContainer;
         var pc = hb?.GetNodeOrNull("%PowerContainer");
 
+        DumpGeometry(c, hb, pc, intents);   // once-per-enemy: the REAL positioned geometry (LLM is blind)
+
         // capture the untouched base positions once (first sighting, before any offset)
         ulong id = c.GetInstanceId();
         if (!_bases.TryGetValue(id, out var b) || !b.Has)
@@ -89,6 +92,38 @@ internal static class EnemyHud
         // intents: the game just set a fresh base this UpdateBounds, so add the offset on top
         if (on && intents != null) AddY(intents, Tunables.EnemyIntentOffsetY);
     }
+
+    /// One-time, at UpdateBounds (when the health bar/intents are actually positioned), dump the REAL
+    /// geometry so the anchor/mirror controls can be designed from data, not intuition (the LLM is blind).
+    private static void DumpGeometry(NCreature c, Node? hb, Node? pc, Node? intents)
+    {
+        if (!DebugLog.Enabled) return;
+        ulong id = c.GetInstanceId();
+        if (!_geoDumped.Add(id) || _geoDumped.Count > 4) return;
+        try
+        {
+            DebugLog.Debug($"=== ENEMY GEOMETRY {c.Name} ===");
+            DebugLog.Debug($"  Hitbox(bounds): {Geo(c.Hitbox)}");
+            DebugLog.Debug($"  %HealthBar: {(hb == null ? "NULL — lookup failed" : Geo(hb))}");
+            if (hb != null)
+                foreach (var ch in hb.GetChildren())
+                {
+                    DebugLog.Debug($"    {ch.Name}: {Geo(ch)}");
+                    foreach (var gc in ch.GetChildren()) DebugLog.Debug($"      {gc.Name}: {Geo(gc)}");
+                }
+            DebugLog.Debug($"  %PowerContainer: {(pc == null ? "NULL" : Geo(pc))}");
+            DebugLog.Debug($"  %Intents: {(intents == null ? "NULL" : Geo(intents))}");
+        }
+        catch (Exception e) { DebugLog.Error("EnemyHud.DumpGeometry", e); }
+    }
+
+    private static string Geo(Node? n) => n switch
+    {
+        null => "null",
+        Control c => $"<{n.GetType().Name}> gpos={c.GlobalPosition} pos={c.Position} size={c.Size} anchors=({c.AnchorLeft:0.##},{c.AnchorTop:0.##},{c.AnchorRight:0.##},{c.AnchorBottom:0.##}) pivot={c.PivotOffset} vis={c.Visible}",
+        Node2D n2 => $"<{n.GetType().Name}:2D> gpos={n2.GlobalPosition} pos={n2.Position} vis={n2.Visible}",
+        _ => $"<{n.GetType().Name}>",
+    };
 
     // ── position helpers (nodes may be Control OR Node2D) ──
     private static Vector2 PosOf(Node? n) => n switch { Control c => c.Position, Node2D n2 => n2.Position, _ => Vector2.Zero };
