@@ -306,15 +306,17 @@ public static class TurnSimReader
         else if (name == "MoltenFist") card.DoubleTargetVulnerable = true;        // after hitting, doubles the target's Vulnerable
         else if (name == "Resonance") { card.EnemyStrengthLoss = 1; card.EStrTarget = TurnSim.Tgt.AllEnemies; }   // all enemies −1 Strength (self +Str via PowerVar)
         else if (name == "FightMe") { card.EnemyStrengthLoss = -1; card.EStrTarget = TurnSim.Tgt.OneEnemy; }       // target GAINS 1 Strength (a downside)
-        else if (name == "Bully")                                                 // base + ExtraDamage × TARGET's Vulnerable
+        else if (name == "Bully" || name == "TimesUp" || name == "Rend")
         {
-            // The CalculatedDamage fallback above already set card.Damage = the calc base (Calculate(null) has
-            // 0 Vulnerable). Capture the per-Vulnerable ExtraDamage and make it a Dyn so the solver scales it
-            // by the target's Vulnerable at play time (the flat read misses that entirely).
-            card.Dynamic = TurnSim.Dyn.Bully;
+            // base + ExtraDamage × a TARGET metric (Vulnerable / Doom / debuff-count). The CalculatedDamage
+            // fallback resolves the multiplier to 0 (Calculate(null)) → a flat read; make it a Dyn so the
+            // solver scales it by the live target at play time. Read the calc base + per-unit ExtraDamage.
+            card.Dynamic = name == "Bully" ? TurnSim.Dyn.Bully : name == "TimesUp" ? TurnSim.Dyn.TimesUp : TurnSim.Dyn.Rend;
+            if (cm.DynamicVars.TryGetValue("CalculationBase", out var cb)) card.Damage = (int)cb.BaseValue;
             if (cm.DynamicVars.TryGetValue("ExtraDamage", out var edv)) card.DynParam = (int)edv.BaseValue;
+            card.AttackTarget = EnemyTgt(cm.TargetType);
             if (card.AttackTarget == TurnSim.Tgt.None) card.AttackTarget = TurnSim.Tgt.OneEnemy;
-            if (card.Hits < 1) card.Hits = 1;
+            card.Hits = ReadHits(cm); if (card.Hits < 1) card.Hits = 1;
         }
 
         // Enchant damage/block is now folded into card.Damage/Block above; other enchant effects
