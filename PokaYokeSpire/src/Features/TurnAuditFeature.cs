@@ -1,87 +1,105 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using MegaCrit.Sts2.Core.Combat;             // CombatState, CombatManager, CombatSide
 using MegaCrit.Sts2.Core.Context;            // LocalContext
-using MegaCrit.Sts2.Core.Entities.Cards;     // CardPile
+using MegaCrit.Sts2.Core.Entities.Cards;     // CardType
 using MegaCrit.Sts2.Core.Entities.Creatures; // Creature
 using MegaCrit.Sts2.Core.Entities.Players;   // Player, PlayerCombatState
+using MegaCrit.Sts2.Core.Models;             // CardModel
 using PokaYokeSpire.Combat;                   // TurnSim, TurnSimReader
 using PokaYokeSpire.Core;                     // Config, DebugLog
 
 namespace PokaYokeSpire.Features;
 
 /// <summary>
-/// SELF-AUDIT — the play-and-fix loop. Each turn this freezes the gems' prediction from the turn-START hand,
-/// then measures what ACTUALLY happened and flags any turn where reality violated the prediction, writing a
-/// full-state report you can hand back for a fix. It relies on two facts the solver guarantees, so a
-/// violation is always a real modelling gap (never a heuristic miss):
+/// SELF-AUDIT — the play-and-fix loop. Each turn this freezes the gems' prediction from the true turn-START
+/// hand (once the draw finishes and you may act), measures what ACTUALLY happened, and flags any turn where
+/// reality broke a bound the solver guarantees — writing a full-state report to hand back for a fix.
 ///
-///   • OFFENSE — you can never deal MORE than <c>MaxPerEnemy[i]</c> (the max over every play sequence). So
-///     <c>actualDealt[i] &gt; MaxPerEnemy[i]</c> ⇒ the sim under-modelled your offense (an unmodelled
-///     enchant / power / relic added damage it didn't count). Measured at end-of-turn, before enemies act.
-///   • DEFENSE — you can never lose FEWER HP than <c>MinHpLost</c> (the min over every play sequence). So
-///     <c>actualHpLost &lt; MinHpLost</c> ⇒ the sim over-modelled the danger (it thought that much was
-///     unavoidable, but you avoided it). Measured across the enemy turn, at the next turn start.
+/// ROBUST TO NEW INFORMATION (the whole point). Drawing/creating a card mid-turn gives you options the frozen
+/// hand didn't have, which could legitimately beat the frozen prediction — so instead of blanket-suppressing
+/// those turns, we RE-SOLVE at finalize over the UNION of everything revealed (frozen hand ∪ every card that
+/// entered your hand this turn) and check the actual result against THAT. A draw only excuses a violation if
+/// the drawn cards actually account for it:
 ///
-/// Drawing cards mid-turn (more options than the frozen hand) or healing confounds those bounds, so those
-/// turns are annotated and NOT flagged. It's opt-in (<see cref="Config.TurnAudit"/>) and log-only: it never
-/// touches the game, only reads state the driver already snapshots and writes to modding/logs/.
+///   • OFFENSE — you can't deal more than the max over the revealed union. <c>actualDealt[i] &gt; omniMax[i]</c>
+///     ⇒ even knowing every card you drew, the sim can't produce that damage ⇒ a real under-model (unmodelled
+///     enchant/power/relic). If you dealt 47 but the card you drew was a Defend, the re-solve still says ~20
+///     and it flags — correctly. Measured at end-of-turn, before enemies act.
+///   • DEFENSE — you can't lose fewer HP than the min over the revealed union. <c>actualHpLost &lt; omniMin</c>
+///     ⇒ even with every drawn defence option, the sim thought more damage was unavoidable ⇒ a real
+///     over-model. Measured across the enemy turn, at the next turn start.
 ///
-/// Wiring: the driver calls <see cref="Observe"/> on every combat-state change (freeze / defense / flags),
-/// and we subscribe once to CombatManager's <c>PlayerEndedTurn</c> for the offense measurement.
+/// The re-solve over-approximates capability (all revealed cards at once, on the frozen energy), which only
+/// LOOSENS both bounds — so it strictly reduces false positives while preserving every real-bug catch. Two
+/// confounds it can't fold in as cards remain suppressors: a POTION (off-hand damage/block/draw the sim never
+/// models) suppresses both; HEALING (raises net HP, confounding the loss measurement) suppresses defense.
+///
+/// Opt-in (<see cref="Config.TurnAudit"/>), log-only: reads state the driver already snapshots, writes to
+/// modding/logs/ (audit-summary.log one line/turn; mismatch-{offense,defense}-*.txt on a real violation).
 /// </summary>
 internal static class TurnAudit
 {
     private sealed class Turn
     {
-        public TurnSim.Result Pred;
-        public TurnSimReader.Snapshot Snap = null!;   // the FROZEN turn-start snapshot (what produced Pred)
+        public TurnSim.Result Pred;                   // frozen turn-start prediction (for the report's before/after)
+        public TurnSimReader.Snapshot Snap = null!;   // the FROZEN turn-start snapshot
         public int PlayerHpStart;
         public int[] EnemyBaselineHp = Array.Empty<int>();   // index-aligned with Snap.EnemyRefs
-        public HashSet<string> HandStart = new(StringComparer.Ordinal);
-        public bool Drew;          // a card whose type wasn't in the start hand appeared ⇒ bounds don't hold
-        public bool Healed;        // player HP rose above its turn-start value ⇒ defense measure confounded
+        public bool Corruption;                        // CorruptionPower at freeze ⇒ revealed skills cost 0 + exhaust
+
+        // Union of everything revealed this turn, and the models we've already folded in (by instance).
+        public readonly List<TurnSim.Card> OmniCards = new();
+        public readonly HashSet<object> SeenModels = new();   // reference identity
+        public TurnSim.Result OmniPred;               // lazily solved over OmniCards (see EnsureOmni)
+        public bool OmniSolved;
+
+        // ── confound annotations ── Drew/Created are informational (the re-solve handles them); Potion/Healed
+        // are true suppressors (non-card effects the re-solve can't account for).
+        public int HandStartCount, DrawPileStart, LastDrawCount, TotalCardsStart, PotionCountStart;
+        public bool Drew, Created, UsedPotion, Healed;
+
         public bool OffenseDone;
-        // filled at end-of-turn so the summary line (written at defense-finalize) can report both halves:
         public string OffenseSummary = "offense=?";
+        public bool OffenseOverSuppressed;   // an over-omni-max hit was seen but a potion suppressed the flag
     }
 
     private static bool _subscribed;
     private static CombatSide _lastSide = CombatSide.None;
+    private static bool _armed;   // a new player turn began; freeze once the hand is drawn and we may act
     private static Turn? _cur;
 
     // ── entry point, called from TurnSimDriverFeature.Submit on every combat-state change ──
     public static void Observe(TurnSimReader.Snapshot? snap, CombatState state)
     {
-        if (!Config.TurnAudit) { _cur = null; _lastSide = CombatSide.None; return; }
+        if (!Config.TurnAudit) { _cur = null; _lastSide = CombatSide.None; _armed = false; return; }
         try
         {
             EnsureSubscribed();
             var side = state.CurrentSide;
 
-            // Enemy → Player transition: the previous player turn is over. Finalise its DEFENSE, then start fresh.
+            // A new player turn begins: finalise the previous turn's DEFENSE and arm — but do NOT freeze yet.
+            // The turn-start sequence resets energy, THEN draws the hand, THEN enables actions; freezing now
+            // would capture an empty hand (⇒ MaxPerEnemy all zero, and every drawn card mis-flagged as a draw).
             if (side == CombatSide.Player && _lastSide != CombatSide.Player)
             {
                 FinalizeDefenseAndSummary(state);
-                _cur = (snap != null) ? Freeze(snap, state) : null;
+                _cur = null;
+                _armed = true;
             }
-            // Very first observation of a player turn (e.g. combat opened already on the player's side).
-            else if (side == CombatSide.Player && _cur == null && snap != null)
+            // Freeze the instant the hand is drawn and the player may act (PlayerActionsDisabled == false).
+            if (_armed && side == CombatSide.Player && snap != null
+                && !ActionsDisabled() && ReadCounts(state).Hand > 0)
             {
                 _cur = Freeze(snap, state);
+                _armed = false;
             }
 
-            // While it's our turn, track the confounds (heal / draw) against the frozen turn.
+            // While it's our turn: fold newly-revealed cards into the union and track the confounds.
             if (side == CombatSide.Player && _cur != null)
-            {
-                int hp = PlayerHp(state);
-                if (hp > _cur.PlayerHpStart) _cur.Healed = true;
-                foreach (var name in RawHandNames(state))
-                    if (!_cur.HandStart.Contains(name)) { _cur.Drew = true; break; }
-            }
+                Accumulate(_cur, state);
 
             _lastSide = side;
         }
@@ -107,23 +125,66 @@ internal static class TurnAudit
 
     private static Turn Freeze(TurnSimReader.Snapshot snap, CombatState state)
     {
-        // Solve the turn-START hand right now so the prediction matches the hand we're auditing (Latest is
-        // async and may still hold the previous turn). Once per turn on the game thread — a debug-only cost.
         TurnSim.Result pred;
         try { pred = TurnSim.Solve(snap.Player, snap.Enemies, snap.Hand, nodeCap: 200000); }
         catch (Exception e) { DebugLog.Error("TurnAudit.Freeze/Solve", e); pred = default; }
 
+        var c = ReadCounts(state);
         var t = new Turn
         {
             Pred = pred,
             Snap = snap,
             PlayerHpStart = PlayerHp(state),
             EnemyBaselineHp = new int[snap.EnemyRefs.Count],
+            Corruption = HasPower(state, "CorruptionPower"),
+            HandStartCount = c.Hand,
+            DrawPileStart = c.Draw,
+            LastDrawCount = c.Draw,
+            TotalCardsStart = c.Total,
+            PotionCountStart = c.Potions,
         };
         for (int i = 0; i < snap.EnemyRefs.Count; i++)
             t.EnemyBaselineHp[i] = SafeHp(snap.EnemyRefs[i]);
-        foreach (var name in RawHandNames(state)) t.HandStart.Add(name);
+
+        // Seed the union with the frozen hand: mark its models seen, copy its interpreted cards.
+        var hand = RawHand(state);
+        if (hand != null) foreach (var cm in hand) t.SeenModels.Add(cm);
+        t.OmniCards.AddRange(snap.Hand);
         return t;
+    }
+
+    // Fold any card now in hand that we haven't seen this turn into the union (a draw or a created card), and
+    // update the confound annotations. Reading each new card ONCE, while it's in hand and readable.
+    private static void Accumulate(Turn t, CombatState state)
+    {
+        if (PlayerHp(state) > t.PlayerHpStart) t.Healed = true;
+
+        var c = ReadCounts(state);
+        if (c.Draw < t.LastDrawCount || c.Draw < t.DrawPileStart) t.Drew = true;
+        t.LastDrawCount = c.Draw;
+        if (c.Total > t.TotalCardsStart) t.Created = true;   // cards created into combat (Shivs, …)
+        if (c.Potions < t.PotionCountStart) t.UsedPotion = true;
+
+        var hand = RawHand(state);
+        if (hand == null) return;
+        foreach (var cm in hand)
+        {
+            if (!t.SeenModels.Add(cm)) continue;   // already folded in
+            t.Drew = true;
+            var card = TurnSimReader.ReadCard(cm);
+            if (card == null) continue;
+            if (t.Corruption && SafeType(cm) == CardType.Skill) { card.Cost = 0; card.Exhausts = true; }
+            t.OmniCards.Add(card);
+        }
+    }
+
+    // Solve over the revealed union — lazily, once (offense finalises first, defense reuses it).
+    private static void EnsureOmni(Turn t)
+    {
+        if (t.OmniSolved) return;
+        t.OmniSolved = true;
+        try { t.OmniPred = TurnSim.Solve(t.Snap.Player, t.Snap.Enemies, t.OmniCards, nodeCap: 200000); }
+        catch (Exception e) { DebugLog.Error("TurnAudit.EnsureOmni/Solve", e); t.OmniPred = t.Pred; }
     }
 
     private static void FinalizeOffense()
@@ -131,9 +192,11 @@ internal static class TurnAudit
         var t = _cur;
         if (t == null || t.OffenseDone) return;
         t.OffenseDone = true;
+        EnsureOmni(t);
 
         var refs = t.Snap.EnemyRefs;
-        var max = t.Pred.MaxPerEnemy ?? Array.Empty<int>();
+        var fmax = t.Pred.MaxPerEnemy ?? Array.Empty<int>();
+        var omax = t.OmniPred.MaxPerEnemy ?? fmax;
         var dealt = new int[refs.Count];
         var over = new List<int>();
         for (int i = 0; i < refs.Count; i++)
@@ -141,48 +204,49 @@ internal static class TurnAudit
             int d = t.EnemyBaselineHp[i] - SafeHp(refs[i]);
             if (d < 0) d = 0;
             dealt[i] = d;
-            int cap = i < max.Length ? max[i] : 0;
-            if (d > cap) over.Add(i);
+            int cap = i < omax.Length ? omax[i] : 0;
+            if (d > cap) over.Add(i);   // beat the re-solve's max — the draw doesn't explain it
         }
-        t.OffenseSummary = $"dealt=[{string.Join(",", dealt)}] vs max=[{string.Join(",", max)}]";
+        t.OffenseSummary = $"dealt=[{string.Join(",", dealt)}] vs max=[{string.Join(",", fmax)}]→omni[{string.Join(",", omax)}]";
 
-        // A real over-model needs at least one enemy hit harder than the sim's max — and NOT via drawn cards.
-        if (over.Count > 0 && !t.Drew)
-        {
-            var sb = new StringBuilder();
-            sb.AppendLine("VIOLATION: OFFENSE — actual damage dealt exceeded the sim's MaxPerEnemy.");
-            foreach (int i in over)
-                sb.AppendLine($"    enemy[{i}]: dealt {dealt[i]} > max {(i < max.Length ? max[i] : 0)}  (+{dealt[i] - (i < max.Length ? max[i] : 0)})");
-            sb.AppendLine("  ⇒ the sim UNDER-modelled your offense (an unmodelled enchant/power/relic added damage).");
-            WriteMismatch("offense", sb.ToString(), t);
-        }
+        if (over.Count == 0) return;
+        if (t.UsedPotion) { t.OffenseOverSuppressed = true; return; }   // potion damage the sim never modelled
+
+        var sb = new StringBuilder();
+        sb.AppendLine("VIOLATION: OFFENSE — actual damage dealt exceeded the sim's max even after re-solving over");
+        sb.AppendLine("every card you drew this turn — so the extra damage is NOT explained by new information.");
+        foreach (int i in over)
+            sb.AppendLine($"    enemy[{i}]: dealt {dealt[i]} > omni-max {(i < omax.Length ? omax[i] : 0)} (frozen-max {(i < fmax.Length ? fmax[i] : 0)})");
+        sb.AppendLine("  ⇒ the sim UNDER-modelled your offense (an unmodelled enchant/power/relic added damage).");
+        WriteMismatch("offense", sb.ToString(), t);
     }
 
     private static void FinalizeDefenseAndSummary(CombatState state)
     {
         var t = _cur;
         if (t == null) return;
+        EnsureOmni(t);
 
-        int hpNow = PlayerHp(state);
-        int lost = t.PlayerHpStart - hpNow;
+        int lost = t.PlayerHpStart - PlayerHp(state);
         if (lost < 0) lost = 0;
-        int min = t.Pred.MinHpLost;
+        int fmin = t.Pred.MinHpLost;
+        int omin = t.OmniPred.MinHpLost;
 
-        // A real over-model needs to have lost FEWER HP than the sim's minimum — and NOT because you healed
-        // (which lowers net loss) or drew extra defense (more options than the frozen hand).
-        bool violation = lost < min && !t.Healed && !t.Drew;
+        // Lost fewer HP than achievable even with every drawn defence option — and not via a potion or heal.
+        bool violation = lost < omin && !t.UsedPotion && !t.Healed;
         if (violation)
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"VIOLATION: DEFENSE — you lost {lost} HP but the sim's MinHpLost was {min} (−{min - lost}).");
-            sb.AppendLine("  ⇒ the sim OVER-modelled the danger (over-counted incoming, or under-counted your mitigation).");
+            sb.AppendLine($"VIOLATION: DEFENSE — you lost {lost} HP but the sim's min (re-solved over every card you");
+            sb.AppendLine($"drew) was {omin} (frozen min {fmin}) — a smaller loss the sim thought was impossible.");
+            sb.AppendLine("  ⇒ the sim OVER-modelled the danger (over-counted incoming, or under-counted mitigation).");
             WriteMismatch("defense", sb.ToString(), t);
         }
 
-        // One summary line per completed turn — coverage + near-misses at a glance, even when clean.
-        string flags = (t.Drew ? " drew" : "") + (t.Healed ? " healed" : "");
+        string flags = (t.Drew ? " drew" : "") + (t.Created ? " created" : "") + (t.UsedPotion ? " potion" : "")
+                     + (t.Healed ? " healed" : "") + (t.OffenseOverSuppressed ? " offense-over(potion-suppressed)" : "");
         string verdict = violation ? "DEFENSE-MISMATCH" : "OK";
-        AppendSummary($"turn done: offense {t.OffenseSummary} | hpLost={lost} vs min={min} | killAll={t.Pred.CanKillAll}{(flags.Length > 0 ? " |" + flags : "")} => {verdict}");
+        AppendSummary($"turn done: offense {t.OffenseSummary} | hpLost={lost} vs min={fmin}→omni{omin} | killAll={t.OmniPred.CanKillAll}{(flags.Length > 0 ? " |" + flags : "")} => {verdict}");
     }
 
     // ── report writers ──
@@ -193,7 +257,7 @@ internal static class TurnAudit
             var sb = new StringBuilder();
             sb.AppendLine($"==================== AUDIT MISMATCH ({kind.ToUpperInvariant()}) ====================");
             sb.AppendLine(verdict);
-            sb.AppendLine($"confounds: drew={t.Drew} healed={t.Healed}   (a flagged mismatch has neither set)");
+            sb.AppendLine($"confounds: drew={t.Drew} created={t.Created} usedPotion={t.UsedPotion} healed={t.Healed}");
             sb.AppendLine();
             sb.AppendLine("── FROZEN TURN-START STATE (what produced the prediction) ──");
             RenderFrozen(sb, t);
@@ -212,11 +276,13 @@ internal static class TurnAudit
     private static void RenderFrozen(StringBuilder sb, Turn t)
     {
         var p = t.Snap.Player;
-        sb.AppendLine($"player: hpStart={t.PlayerHpStart} energy={p.Energy} str={p.Strength} dex={p.Dexterity} weak={p.Weak} frail={p.Frail} vuln={p.Vulnerable} shrink={p.Shrink} intangible={p.Intangible} block={p.Block} vigor={p.Vigor} reactiveBlk={p.ReactiveBlock} endTurnBlockable={p.EndTurnSelfDamageBlockable} endTurnUnblockable={p.EndTurnSelfDamage}");
-        sb.AppendLine($"start hand types: [{string.Join(", ", t.HandStart)}]");
-        sb.AppendLine($"sim hand ({t.Snap.Hand.Count}) — interpreted:");
-        foreach (var c in t.Snap.Hand)
-            sb.AppendLine($"    {c.Name}: cost={c.Cost} dmg={c.Damage}x{c.Hits} tgt={c.AttackTarget} block={c.Block} flatBlk={c.FlatBlock} applyVuln={c.ApplyVulnerable} applyWeak={c.ApplyWeak} strGain={c.StrengthGain} xcost={c.XCost} exhaust={c.Exhausts} dyn={c.Dynamic}");
+        sb.AppendLine($"player: hpStart={t.PlayerHpStart} energy={p.Energy} str={p.Strength} dex={p.Dexterity} weak={p.Weak} frail={p.Frail} vuln={p.Vulnerable} shrink={p.Shrink} intangible={p.Intangible} block={p.Block} vigor={p.Vigor} reactiveBlk={p.ReactiveBlock} endTurnBlockable={p.EndTurnSelfDamageBlockable} endTurnUnblockable={p.EndTurnSelfDamage} corruption={t.Corruption}");
+        sb.AppendLine($"piles at start: hand={t.HandStartCount} draw={t.DrawPileStart} totalCards={t.TotalCardsStart} potions={t.PotionCountStart}");
+        sb.AppendLine($"frozen hand ({t.Snap.Hand.Count}):");
+        foreach (var c in t.Snap.Hand) sb.AppendLine("    " + RenderCard(c));
+        int revealed = t.OmniCards.Count - t.Snap.Hand.Count;
+        sb.AppendLine($"REVEALED union hand ({t.OmniCards.Count}, +{(revealed < 0 ? 0 : revealed)} drawn/created — the re-solve saw ALL of these):");
+        foreach (var c in t.OmniCards) sb.AppendLine("    " + RenderCard(c));
         sb.AppendLine($"enemies ({t.Snap.Enemies.Length}):");
         for (int i = 0; i < t.Snap.Enemies.Length; i++)
         {
@@ -224,8 +290,12 @@ internal static class TurnAudit
             int baseHp = i < t.EnemyBaselineHp.Length ? t.EnemyBaselineHp[i] : -1;
             sb.AppendLine($"    [{i}] hpStart={baseHp} block={e.Block} vuln={e.Vulnerable} weak={e.Weak} str={e.Strength} intent={e.IntentDamage}x{e.IntentHits} perHitCap={e.PerHitCap} dmgTakenPct={e.DamageTakenPct} doom={e.Doom}");
         }
-        sb.AppendLine($"prediction: maxDmg={t.Pred.MaxDamage} perEnemy=[{string.Join(",", t.Pred.MaxPerEnemy ?? Array.Empty<int>())}] minHp={t.Pred.MinHpLost} killAll={t.Pred.CanKillAll} nodes={t.Pred.Nodes} truncated={t.Pred.Truncated}");
+        sb.AppendLine($"frozen prediction: maxDmg={t.Pred.MaxDamage} perEnemy=[{string.Join(",", t.Pred.MaxPerEnemy ?? Array.Empty<int>())}] minHp={t.Pred.MinHpLost} killAll={t.Pred.CanKillAll} nodes={t.Pred.Nodes} truncated={t.Pred.Truncated}");
+        sb.AppendLine($"re-solved (omni): maxDmg={t.OmniPred.MaxDamage} perEnemy=[{string.Join(",", t.OmniPred.MaxPerEnemy ?? Array.Empty<int>())}] minHp={t.OmniPred.MinHpLost} killAll={t.OmniPred.CanKillAll} nodes={t.OmniPred.Nodes} truncated={t.OmniPred.Truncated}");
     }
+
+    private static string RenderCard(TurnSim.Card c)
+        => $"{c.Name}: cost={c.Cost} dmg={c.Damage}x{c.Hits} tgt={c.AttackTarget} block={c.Block} flatBlk={c.FlatBlock} applyVuln={c.ApplyVulnerable} applyWeak={c.ApplyWeak} strGain={c.StrengthGain} xcost={c.XCost} exhaust={c.Exhausts} dyn={c.Dynamic}";
 
     private static void AppendSummary(string line)
     {
@@ -240,22 +310,61 @@ internal static class TurnAudit
         catch { return 0; }
     }
 
+    // True while the game is mid-animation / resolving — the hand isn't yet the player's to act on. Goes false
+    // once the turn-start draw finishes; we read it only while armed, so we freeze the fully-drawn hand.
+    private static bool ActionsDisabled()
+    {
+        try { return CombatManager.Instance?.PlayerActionsDisabled ?? true; }
+        catch { return true; }
+    }
+
+    private static bool HasPower(CombatState state, string powerTypeName)
+    {
+        try
+        {
+            var meC = LocalContext.GetMe((IEnumerable<Creature>)state.Creatures);
+            if (meC != null) foreach (var pw in meC.Powers) if (pw.GetType().Name == powerTypeName) return true;
+        }
+        catch { }
+        return false;
+    }
+
+    private static IReadOnlyList<CardModel>? RawHand(CombatState state)
+    {
+        try { return LocalContext.GetMe(state)?.PlayerCombatState?.Hand?.Cards; }
+        catch { return null; }
+    }
+
+    private static CardType SafeType(CardModel cm)
+    {
+        try { return cm.Type; } catch { return CardType.Attack; }
+    }
+
     private static int SafeHp(Creature? c)
     {
         try { int hp = c?.CurrentHp ?? 0; return hp < 0 ? 0 : hp; }
         catch { return 0; }
     }
 
-    private static IEnumerable<string> RawHandNames(CombatState state)
+    // Pile SIZES (Hand/Draw), every card in combat (Total, grows only on creation), and filled potion slots.
+    private static (int Hand, int Draw, int Total, int Potions) ReadCounts(CombatState state)
     {
-        List<string> names = new();
+        int hand = 0, draw = 0, disc = 0, exh = 0, pot = 0;
         try
         {
-            var hand = LocalContext.GetMe(state)?.PlayerCombatState?.Hand;
-            if (hand != null) foreach (var c in hand.Cards) names.Add(c.GetType().Name);
+            var me = LocalContext.GetMe(state);
+            var pcs = me?.PlayerCombatState;
+            if (pcs != null)
+            {
+                hand = pcs.Hand.Cards.Count;
+                draw = pcs.DrawPile.Cards.Count;
+                disc = pcs.DiscardPile.Cards.Count;
+                exh = pcs.ExhaustPile.Cards.Count;
+            }
+            if (me?.Potions != null) foreach (var po in me.Potions) if (po != null) pot++;
         }
         catch { }
-        return names;
+        return (hand, draw, hand + draw + disc + exh, pot);
     }
 
     private static string Stamp() => DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");

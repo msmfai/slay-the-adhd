@@ -125,8 +125,6 @@ public class Config : SimpleModConfig
     /// third as much, to free a little vertical space.
     public static bool RaiseCombatHud { get; set; } = true;
 
-    /// EXPERIMENTAL — apply the enemy.* offsets (health bar / status icons / intent) from tunables.json
-    /// to every enemy, so you can reposition them (e.g. health bar above the sprite, intent higher
-    /// still). Off by default: with it off, enemy UI is untouched.
-    public static bool MoveEnemyHud { get; set; } = false;
+    // Enemy-HUD repositioning is driven directly by the enemy.* tunables (F9 → "Combat · enemies", or
+    // tunables.json with LiveTuning) — offsets of 0 leave enemies untouched, so no separate toggle.
 }
