@@ -52,6 +52,36 @@ public class TurnSimTests
         Assert.Equal(5, r.MaxDamage);         // Defend → 5 block → Body Slam deals 5
     }
 
+    // Bully: base 4 + ExtraDamage(2) × the TARGET's Vulnerable, then the 1.5× Vulnerable multiplier on top.
+    private static Card Bully() => new() { Name = "Bully", Cost = 0, Damage = 4, DynParam = 2, Dynamic = Dyn.Bully, AttackTarget = Tgt.OneEnemy };
+
+    [Fact]
+    public void Bully_ScalesWithTargetVulnerable()
+    {
+        // enemy already Vulnerable 3: base = 4 + 2×3 = 10, then ×1.5 = 15 (not the flat 4 a naive read gives).
+        var r = TurnSim.Solve(P(3), new[] { E(100, vuln: 3) }, new List<Card> { Bully() });
+        Assert.Equal(15, r.MaxDamage);
+    }
+
+    [Fact]
+    public void Bully_AfterBash_UsesTheFreshVulnerable_OrderMatters()
+    {
+        // Bash 8 (applies Vulnerable 2) → Bully base = 4 + 2×2 = 8, ×1.5 = 12  →  20 total.
+        // Bully-first would be 4 (no Vulnerable yet) + Bash 8 = 12, so the solver must pick Bash-first.
+        var r = TurnSim.Solve(P(3), new[] { E(100) }, new List<Card> { Bash(), Bully() });
+        Assert.Equal(20, r.MaxDamage);
+    }
+
+    [Fact]
+    public void MoltenFist_DoublesTargetVulnerable_FeedingBully()
+    {
+        // Enemy already Vulnerable 2. Molten Fist 10 (×1.5 = 15), then DOUBLES Vulnerable to 4; Bully then
+        // reads 4 stacks: 4 + 2×4 = 12, ×1.5 = 18  →  33. (Molten-Fist-first is the max; Bully-first is 27.)
+        var molten = new Card { Name = "MoltenFist", Cost = 1, Damage = 10, DoubleTargetVulnerable = true, AttackTarget = Tgt.OneEnemy, Exhausts = true };
+        var r = TurnSim.Solve(P(2), new[] { E(100, vuln: 2) }, new List<Card> { molten, Bully() });
+        Assert.Equal(33, r.MaxDamage);
+    }
+
     [Fact]
     public void PlayerWeak_LowersYourDamage()
     {

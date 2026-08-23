@@ -25,7 +25,7 @@ namespace PokaYokeSpire.Combat;
 public static class TurnSim
 {
     public enum Tgt { None, OneEnemy, AllEnemies }
-    public enum Dyn { None, BodySlam, SecondWind, Entrench }   // bespoke, state-dependent cards
+    public enum Dyn { None, BodySlam, SecondWind, Entrench, Bully }   // bespoke, state-dependent cards
 
     public struct Enemy
     {
@@ -108,12 +108,13 @@ public static class TurnSim
         public bool GrantIntangible;          // Apparition/Wraith Form: become Intangible (each hit capped to 1)
         public bool RemoveEnemyBlock;         // Expose: set the target enemy's Block to 0
         public bool DoubleHitsIfTargetVulnerable;   // Dismantle: hits ×2 if the target is Vulnerable
+        public bool DoubleTargetVulnerable;         // Molten Fist: after hitting, applies Vulnerable = target's current (doubles it)
         public bool IsDefend, IsShiv, IsColorless, IsEthereal;   // tags for Fasten/Accuracy/PhantomBlades/Arsenal/SpiritOfAsh
         public int ApplyDoom; public Tgt DoomTarget = Tgt.None;   // Oblivion/End of Days: end-of-turn execute
         public bool XCost;     // X-cost card (Whirlwind): spends ALL energy, hits X = energy times
         public Dyn Dynamic = Dyn.None;
         public int DynParam;   // e.g. Second Wind's block-per-exhausted-card
-        public bool IsAttack => Damage > 0 || Dynamic == Dyn.BodySlam;
+        public bool IsAttack => Damage > 0 || Dynamic == Dyn.BodySlam || Dynamic == Dyn.Bully;
     }
 
     public struct Result
@@ -276,7 +277,7 @@ public static class TurnSim
         && c.StrengthGain == 0 && c.DexterityGain == 0 && c.VigorGain == 0 && c.GrantBlockPerAttack == 0
         && c.EnemyStrengthLoss == 0 && c.ApplyVulnerable == 0 && c.ApplyWeak == 0 && c.ApplyDoom == 0
         && c.SelfDamageOnPlay == 0 && !c.GrantIntangible && !c.RemoveEnemyBlock
-        && !c.DoubleBlockIfExhausted && !c.DoubleHitsIfTargetVulnerable;
+        && !c.DoubleBlockIfExhausted && !c.DoubleHitsIfTargetVulnerable && !c.DoubleTargetVulnerable;
 
     private static bool IsPureAttack(Card c) => c.Damage > 0 && c.AttackTarget != Tgt.None && c.Block == 0 && NoSideEffects(c);
     private static bool IsPureBlock(Card c) => c.Block > 0 && c.Damage == 0 && NoSideEffects(c);
@@ -346,6 +347,7 @@ public static class TurnSim
         && a.Exhausts == b.Exhausts && a.DoubleBlockIfExhausted == b.DoubleBlockIfExhausted
         && a.SelfDamageOnPlay == b.SelfDamageOnPlay && a.GrantIntangible == b.GrantIntangible
         && a.RemoveEnemyBlock == b.RemoveEnemyBlock && a.DoubleHitsIfTargetVulnerable == b.DoubleHitsIfTargetVulnerable
+        && a.DoubleTargetVulnerable == b.DoubleTargetVulnerable
         && a.ApplyDoom == b.ApplyDoom && a.DoomTarget == b.DoomTarget
         && a.IsDefend == b.IsDefend && a.IsShiv == b.IsShiv && a.IsColorless == b.IsColorless && a.IsEthereal == b.IsEthereal
         && a.Dynamic == b.Dynamic && a.DynParam == b.DynParam;
@@ -447,6 +449,12 @@ public static class TurnSim
 
         int dmg = c.Damage;
         if (c.Dynamic == Dyn.BodySlam) dmg = p.Block;   // Body Slam: damage == current block
+        if (c.Dynamic == Dyn.Bully)                      // Bully: base + ExtraDamage × the TARGET's Vulnerable
+        {
+            int bt = target >= 0 ? target : FirstAlive(e);
+            int bvuln = (bt >= 0 && bt < e.Length) ? e[bt].Vulnerable : 0;
+            dmg = c.Damage + c.DynParam * bvuln;         // the 1.5× Vulnerable multiplier is applied by HitEnemy on top
+        }
         if (c.IsShiv && dmg > 0)                         // Accuracy (+all Shivs) / Phantom Blades (+first Shiv)
         {
             dmg += p.ShivDamageBonus;
@@ -523,6 +531,11 @@ public static class TurnSim
         if (c.IsEthereal && p.BlockOnEthereal > 0) p.Block += p.BlockOnEthereal;     // Spirit of Ash
         ApplyStrengthLoss(ref e, c.EnemyStrengthLoss, c.EStrTarget, target);   // Piercing Wail etc. (signed)
         ApplyStatus(ref e, c.ApplyVulnerable, c.VulnTarget, target, isVuln: true);
+        if (c.DoubleTargetVulnerable)   // Molten Fist: adds Vulnerable equal to the target's current (doubling it)
+        {
+            int mt = target >= 0 ? target : FirstAlive(e);
+            if (mt >= 0 && mt < e.Length && e[mt].Alive && e[mt].Vulnerable > 0) e[mt].Vulnerable += e[mt].Vulnerable;
+        }
         ApplyStatus(ref e, c.ApplyWeak, c.WeakTarget, target, isVuln: false);
         ApplyDoomTo(ref e, c.ApplyDoom, c.DoomTarget, target);   // Oblivion/End of Days: end-of-turn execute
         if (c.ApplyDoom > 0 && p.BlockOnDoomApplied > 0) p.Block += p.BlockOnDoomApplied;   // Shroud
