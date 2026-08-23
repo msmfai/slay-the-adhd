@@ -9,18 +9,18 @@ using PokaYokeSpire.Core;
 namespace PokaYokeSpire.Features;
 
 /// <summary>
-/// EXPERIMENTAL enemy-HUD repositioning (Config.MoveEnemyHud; off by default, so enemies are untouched
-/// unless you opt in). Applies the tunable enemy.* Y offsets to each enemy's:
-///   • %HealthBar  (NCreatureStateDisplay — the whole health/status/nameplate unit)  → healthBarOffsetY
-///   • %PowerContainer (the status/power icons, inside the health bar)                → statusOffsetY
-///   • %Intents (IntentContainer — the intent icons)                                 → intentOffsetY
-/// so you can e.g. put the health bar above the sprite and the intent icons higher still.
+/// Enemy-HUD repositioning, driven live off the enemy.* tunables (F9 → "Combat · enemies") — no separate
+/// toggle; all-zero offsets leave enemies untouched. Applies to each enemy's:
+///   • %HealthBar  (NCreatureStateDisplay — the whole health/status/nameplate unit)  → healthBarOffsetX/Y
+///   • %PowerContainer (the status/power icons, nested in the health bar)             → statusOffsetX/Y
+///   • %Intents (IntentContainer — the intent icons)                                 → intentOffsetX/Y
+///   • anchorFrac (0..1) slides the health unit + intents up a fraction of the sprite height (→ above head)
 ///
-/// Drift-free by construction: IntentContainer is repositioned by the game every UpdateBounds, so we
-/// add the offset to that fresh value; the health bar / power container are positioned once, so we store
-/// their BASE the first time we see them and always set base+offset (never accumulate). Toggling the
-/// switch off restores the stored base. Guarded + fail-open. A one-time subtree dump (DebugLogging) lets
-/// the real node names/positions be verified.
+/// Correct by construction against how the game positions these (established statically): every UpdateBounds
+/// it re-anchors X to the sprite bounds but PRESERVES Y, while intents alone reset BOTH axes from a marker.
+/// So: X is read fresh each frame and offset (bars keep tracking a moving sprite); the Y-preserved nodes get
+/// a stable captured-base + offset (no drift); intents get fresh + offset (also no drift). Guarded +
+/// fail-open. A one-time geometry dump (DebugLogging) exposes the real positions to calibrate the anchor.
 /// </summary>
 [HarmonyPatch(typeof(NCreature), "_Ready")]
 internal static class EnemyHudReadyFeature
@@ -39,7 +39,7 @@ internal static class EnemyHudBoundsFeature
 
 internal static class EnemyHud
 {
-    private struct Bases { public bool Has; public Vector2 Hb, Pc; }
+    private struct Bases { public bool Has; public float HbY, PcY; }
     private static readonly Dictionary<ulong, Bases> _bases = new();
     private static readonly HashSet<ulong> _dumped = new();
     private static readonly HashSet<ulong> _geoDumped = new();
@@ -77,20 +77,34 @@ internal static class EnemyHud
 
         DumpGeometry(c, hb, pc, intents);   // once-per-enemy: the REAL positioned geometry (LLM is blind)
 
-        // capture the untouched base positions once (first sighting, before any offset)
+        // Capture each Y-preserved node's natural Y ONCE (first sighting, before we touch it). The game
+        // re-anchors X to the sprite every UpdateBounds but PRESERVES Y — so a stable offset must be built on
+        // a captured baseY, while X is read fresh each frame (so bars still track a moving sprite).
         ulong id = c.GetInstanceId();
         if (!_bases.TryGetValue(id, out var b) || !b.Has)
         {
-            b = new Bases { Has = true, Hb = PosOf(hb), Pc = PosOf(pc) };
+            b = new Bases { Has = true, HbY = PosY(hb), PcY = PosY(pc) };
             _bases[id] = b;
         }
 
-        bool on = Config.MoveEnemyHud;
-        // health bar + power container: always set from the stored base (never accumulate)
-        SetPos(hb, on ? b.Hb + new Vector2(0, Tunables.EnemyHealthBarOffsetY) : b.Hb);
-        SetPos(pc, on ? b.Pc + new Vector2(0, Tunables.EnemyStatusOffsetY) : b.Pc);
-        // intents: the game just set a fresh base this UpdateBounds, so add the offset on top
-        if (on && intents != null) AddY(intents, Tunables.EnemyIntentOffsetY);
+        // Slide the whole health unit + intents up the sprite by a fraction of its height (0 = default).
+        float anchorY = -BoundsHeight(c) * Tunables.EnemyAnchorFrac;
+
+        // Health bar: X = fresh game X + offsetX (tracks sprite);  Y = captured base + offsetY + anchor.
+        SetPos(hb, new Vector2(PosX(hb) + Tunables.EnemyHealthBarOffsetX, b.HbY + Tunables.EnemyHealthBarOffsetY + anchorY));
+        // Power container is nested UNDER the health bar, so it already rode the anchor — only its own nudge.
+        SetPos(pc, new Vector2(PosX(pc) + Tunables.EnemyStatusOffsetX, b.PcY + Tunables.EnemyStatusOffsetY));
+        // Intents: the game reset BOTH axes from a marker this UpdateBounds, so add offsets to the fresh value
+        // (non-accumulating) — anchor included so intents rise with the bar.
+        if (intents != null)
+            SetPos(intents, new Vector2(PosX(intents) + Tunables.EnemyIntentOffsetX, PosY(intents) + Tunables.EnemyIntentOffsetY + anchorY));
+    }
+
+    /// Sprite height proxy for the anchor slider — the clickable hitbox bounds the enemy art closely enough.
+    private static float BoundsHeight(NCreature c)
+    {
+        try { return c.Hitbox is Control h ? h.Size.Y : 0f; }
+        catch { return 0f; }
     }
 
     /// One-time, at UpdateBounds (when the health bar/intents are actually positioned), dump the REAL
@@ -127,8 +141,9 @@ internal static class EnemyHud
 
     // ── position helpers (nodes may be Control OR Node2D) ──
     private static Vector2 PosOf(Node? n) => n switch { Control c => c.Position, Node2D n2 => n2.Position, _ => Vector2.Zero };
+    private static float PosX(Node? n) => PosOf(n).X;
+    private static float PosY(Node? n) => PosOf(n).Y;
     private static void SetPos(Node? n, Vector2 p) { if (n is Control c) c.Position = p; else if (n is Node2D n2) n2.Position = p; }
-    private static void AddY(Node n, float dy) { if (n is Control c) c.Position += new Vector2(0, dy); else if (n is Node2D n2) n2.Position += new Vector2(0, dy); }
 
     private static void DumpNode(Node n, int depth, int maxDepth)
     {

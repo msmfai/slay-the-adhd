@@ -40,10 +40,17 @@ public static class Tunables
     public static float HudGroupOffsetX { get; private set; }   // shift the whole hand+counter cluster
     public static float HudGroupOffsetY { get; private set; }
 
-    // ── enemy HUD nudges (experimental; 0 = don't move anything). Applied only when the toggle is on. ──
+    // ── enemy HUD nudges (0 = don't move anything; applied live off these values — no separate toggle). ──
+    // X offsets track the sprite (added on top of the game's per-frame horizontal anchor, so bars follow a
+    // moving enemy); Y offsets are stable pixel nudges. AnchorFrac slides the whole health unit + intents up
+    // the sprite: 0 = default (bottom), 1 = a full sprite-height up (≈ above the head) — fine-tune with Y.
     public static float EnemyHealthBarOffsetY { get; private set; }
     public static float EnemyStatusOffsetY { get; private set; }
     public static float EnemyIntentOffsetY { get; private set; }
+    public static float EnemyHealthBarOffsetX { get; private set; }
+    public static float EnemyStatusOffsetX { get; private set; }
+    public static float EnemyIntentOffsetX { get; private set; }
+    public static float EnemyAnchorFrac { get; private set; }   // 0..1, fraction of sprite height to raise by
 
     // ── energy counter ──
     public static float EnergyHeightFrac { get; private set; } = 1.03f;   // fraction of screen height
@@ -104,9 +111,13 @@ public static class Tunables
         new() { Path = "cardPreview.cursorOffsetY",   Min = -80f,  Max = 80f,   Step = 2f,    Get = () => CardPreviewOffsetY,      Set = v => { CardPreviewOffsetY = v; Bump(); } },
         new() { Path = "hud.groupOffsetX",            Min = -400f, Max = 400f,  Step = 2f,    Get = () => HudGroupOffsetX,         Set = v => { HudGroupOffsetX = v; Bump(); } },
         new() { Path = "hud.groupOffsetY",            Min = -400f, Max = 400f,  Step = 2f,    Get = () => HudGroupOffsetY,         Set = v => { HudGroupOffsetY = v; Bump(); } },
+        new() { Path = "enemy.anchorFrac",            Min = 0f,    Max = 1f,    Step = 0.02f, Get = () => EnemyAnchorFrac,         Set = v => { EnemyAnchorFrac = v; Bump(); } },
         new() { Path = "enemy.healthBarOffsetY",      Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyHealthBarOffsetY,   Set = v => { EnemyHealthBarOffsetY = v; Bump(); } },
+        new() { Path = "enemy.healthBarOffsetX",      Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyHealthBarOffsetX,   Set = v => { EnemyHealthBarOffsetX = v; Bump(); } },
         new() { Path = "enemy.statusOffsetY",         Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyStatusOffsetY,      Set = v => { EnemyStatusOffsetY = v; Bump(); } },
+        new() { Path = "enemy.statusOffsetX",         Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyStatusOffsetX,      Set = v => { EnemyStatusOffsetX = v; Bump(); } },
         new() { Path = "enemy.intentOffsetY",         Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyIntentOffsetY,      Set = v => { EnemyIntentOffsetY = v; Bump(); } },
+        new() { Path = "enemy.intentOffsetX",         Min = -300f, Max = 300f,  Step = 2f,    Get = () => EnemyIntentOffsetX,      Set = v => { EnemyIntentOffsetX = v; Bump(); } },
     };
 
     /// Editable TEXT tunables (rendered as multi-line fields in the panel) — the gem tooltips.
@@ -169,9 +180,13 @@ public static class Tunables
             },
             ["enemy"] = new System.Collections.Generic.Dictionary<string, object>
             {
+                ["anchorFrac"] = Round(EnemyAnchorFrac),
                 ["healthBarOffsetY"] = Round(EnemyHealthBarOffsetY),
+                ["healthBarOffsetX"] = Round(EnemyHealthBarOffsetX),
                 ["statusOffsetY"] = Round(EnemyStatusOffsetY),
+                ["statusOffsetX"] = Round(EnemyStatusOffsetX),
                 ["intentOffsetY"] = Round(EnemyIntentOffsetY),
+                ["intentOffsetX"] = Round(EnemyIntentOffsetX),
             },
         };
         return JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
@@ -289,9 +304,13 @@ public static class Tunables
             }
             if (root.TryGetProperty("enemy", out var em))
             {
+                EnemyAnchorFrac = F(em, "anchorFrac", EnemyAnchorFrac);
                 EnemyHealthBarOffsetY = F(em, "healthBarOffsetY", EnemyHealthBarOffsetY);
+                EnemyHealthBarOffsetX = F(em, "healthBarOffsetX", EnemyHealthBarOffsetX);
                 EnemyStatusOffsetY = F(em, "statusOffsetY", EnemyStatusOffsetY);
+                EnemyStatusOffsetX = F(em, "statusOffsetX", EnemyStatusOffsetX);
                 EnemyIntentOffsetY = F(em, "intentOffsetY", EnemyIntentOffsetY);
+                EnemyIntentOffsetX = F(em, "intentOffsetX", EnemyIntentOffsetX);
             }
             if (root.TryGetProperty("energy", out var en))
                 EnergyHeightFrac = F(en, "heightFrac", EnergyHeightFrac);

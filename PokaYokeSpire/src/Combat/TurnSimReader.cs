@@ -212,7 +212,9 @@ public static class TurnSimReader
         catch { return (0, 0); }
     }
 
-    private static TurnSim.Card? ReadCard(CardModel cm)
+    /// Read a single live card into the sim's value model. Exposed so the self-audit can convert cards that
+    /// are DRAWN mid-turn and fold them into an end-of-turn re-solve (the union of everything revealed).
+    internal static TurnSim.Card? ReadCard(CardModel cm)
     {
         string name = cm.GetType().Name;
 
