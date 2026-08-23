@@ -59,7 +59,13 @@ internal static class TurnAudit
         // ── confound annotations ── Drew/Created are informational (the re-solve handles them); Potion/Healed
         // are true suppressors (non-card effects the re-solve can't account for).
         public int HandStartCount, DrawPileStart, LastDrawCount, TotalCardsStart, PotionCountStart, BaseDiscExh;
+        public int Drawn;   // cumulative cards drawn (draw-pile decreases) after the freeze
         public bool Drew, Created, UsedPotion, Healed;
+        public string Relics = "", Powers = "";
+
+        // True when more cards were drawn than we managed to fold into the union (a card drawn AND played
+        // within one state-change gap escapes capture) — then the omni bound is unsound, so we suppress.
+        public bool UncapturedDraw => Drawn > SeenModels.Count - HandStartCount;
 
         public bool OffenseDone;
         public string OffenseSummary = "offense=?";
@@ -156,6 +162,8 @@ internal static class TurnAudit
             TotalCardsStart = c.Total,
             PotionCountStart = c.Potions,
             BaseDiscExh = c.Disc + c.Exh,
+            Relics = ReadRelics(state),
+            Powers = ReadPowers(state),
         };
         for (int i = 0; i < snap.EnemyRefs.Count; i++)
             t.EnemyBaselineHp[i] = SafeHp(snap.EnemyRefs[i]);
@@ -174,7 +182,8 @@ internal static class TurnAudit
         if (PlayerHp(state) > t.PlayerHpStart) t.Healed = true;
 
         var c = ReadCounts(state);
-        if (c.Draw < t.LastDrawCount || c.Draw < t.DrawPileStart) t.Drew = true;
+        if (c.Draw < t.LastDrawCount) { t.Drew = true; t.Drawn += t.LastDrawCount - c.Draw; }   // cards left the draw pile
+        if (c.Draw < t.DrawPileStart) t.Drew = true;
         t.LastDrawCount = c.Draw;
         if (c.Total > t.TotalCardsStart) t.Created = true;   // cards created into combat (Shivs, …)
         if (c.Potions < t.PotionCountStart) t.UsedPotion = true;
@@ -227,7 +236,7 @@ internal static class TurnAudit
         t.OffenseSummary = $"dealt=[{string.Join(",", dealt)}] vs max=[{string.Join(",", fmax)}]→omni[{string.Join(",", omax)}]";
 
         if (over.Count == 0) return;
-        if (t.UsedPotion) { t.OffenseOverSuppressed = true; return; }   // potion damage the sim never modelled
+        if (t.UsedPotion || t.UncapturedDraw) { t.OffenseOverSuppressed = true; return; }   // potion damage, or a drawn-and-played card the union missed
 
         var sb = new StringBuilder();
         sb.AppendLine("VIOLATION: OFFENSE — actual damage dealt exceeded the sim's max even after re-solving over");
@@ -250,7 +259,7 @@ internal static class TurnAudit
         int omin = t.OmniPred.MinHpLost;
 
         // Lost fewer HP than achievable even with every drawn defence option — and not via a potion or heal.
-        bool violation = lost < omin && !t.UsedPotion && !t.Healed;
+        bool violation = lost < omin && !t.UsedPotion && !t.Healed && !t.UncapturedDraw;
         if (violation)
         {
             var sb = new StringBuilder();
@@ -261,7 +270,8 @@ internal static class TurnAudit
         }
 
         string flags = (t.Drew ? " drew" : "") + (t.Created ? " created" : "") + (t.UsedPotion ? " potion" : "")
-                     + (t.Healed ? " healed" : "") + (t.OffenseOverSuppressed ? " offense-over(potion-suppressed)" : "");
+                     + (t.Healed ? " healed" : "") + (t.UncapturedDraw ? " uncaptured-draw" : "")
+                     + (t.OffenseOverSuppressed ? " offense-over(suppressed)" : "");
         string verdict = violation ? "DEFENSE-MISMATCH" : "OK";
         AppendSummary($"turn done: offense {t.OffenseSummary} | hpLost={lost} vs min={fmin}→omni{omin} | killAll={t.OmniPred.CanKillAll}{(flags.Length > 0 ? " |" + flags : "")} => {verdict}");
     }
@@ -274,7 +284,7 @@ internal static class TurnAudit
             var sb = new StringBuilder();
             sb.AppendLine($"==================== AUDIT MISMATCH ({kind.ToUpperInvariant()}) ====================");
             sb.AppendLine(verdict);
-            sb.AppendLine($"confounds: drew={t.Drew} created={t.Created} usedPotion={t.UsedPotion} healed={t.Healed}");
+            sb.AppendLine($"confounds: drew={t.Drew} created={t.Created} usedPotion={t.UsedPotion} healed={t.Healed} uncapturedDraw={t.UncapturedDraw} (drawn={t.Drawn}, capturedNew={t.SeenModels.Count - t.HandStartCount})");
             sb.AppendLine();
             sb.AppendLine("── FROZEN TURN-START STATE (what produced the prediction) ──");
             RenderFrozen(sb, t);
@@ -295,6 +305,8 @@ internal static class TurnAudit
         var p = t.Snap.Player;
         sb.AppendLine($"player: hpStart={t.PlayerHpStart} energy={p.Energy} str={p.Strength} dex={p.Dexterity} weak={p.Weak} frail={p.Frail} vuln={p.Vulnerable} shrink={p.Shrink} intangible={p.Intangible} block={p.Block} vigor={p.Vigor} reactiveBlk={p.ReactiveBlock} endTurnBlockable={p.EndTurnSelfDamageBlockable} endTurnUnblockable={p.EndTurnSelfDamage} corruption={t.Corruption}");
         sb.AppendLine($"piles at start: hand={t.HandStartCount} draw={t.DrawPileStart} totalCards={t.TotalCardsStart} potions={t.PotionCountStart}");
+        sb.AppendLine($"relics: {t.Relics}");
+        sb.AppendLine($"powers: {t.Powers}");
         sb.AppendLine($"frozen hand ({t.Snap.Hand.Count}):");
         foreach (var c in t.Snap.Hand) sb.AppendLine("    " + RenderCard(c));
         int revealed = t.OmniCards.Count - t.Snap.Hand.Count;
@@ -339,6 +351,32 @@ internal static class TurnAudit
     {
         try { return LocalContext.GetMe((IEnumerable<Creature>)state.Creatures)?.CurrentHp ?? 0; }
         catch { return 0; }
+    }
+
+    private static string ReadRelics(CombatState state)
+    {
+        try
+        {
+            var me = LocalContext.GetMe(state);
+            if (me?.Relics == null) return "";
+            var sb = new StringBuilder();
+            foreach (var r in me.Relics) sb.Append(r.GetType().Name).Append(' ');
+            return sb.ToString();
+        }
+        catch { return ""; }
+    }
+
+    private static string ReadPowers(CombatState state)
+    {
+        try
+        {
+            var meC = LocalContext.GetMe((IEnumerable<Creature>)state.Creatures);
+            if (meC == null) return "";
+            var sb = new StringBuilder();
+            foreach (var pw in meC.Powers) sb.Append($"{pw.GetType().Name}={pw.Amount} ");
+            return sb.ToString();
+        }
+        catch { return ""; }
     }
 
     private static bool HasPower(CombatState state, string powerTypeName)
