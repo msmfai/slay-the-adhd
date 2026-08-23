@@ -25,7 +25,9 @@ namespace PokaYokeSpire.Combat;
 public static class TurnSim
 {
     public enum Tgt { None, OneEnemy, AllEnemies }
-    public enum Dyn { None, BodySlam, SecondWind, Entrench, Bully }   // bespoke, state-dependent cards
+    // bespoke, state-dependent cards. Bully/TimesUp/Rend all scale damage by a metric of the TARGET (which
+    // the game reads via a CalculatedDamage multiplier that a static read resolves to 0 — so they'd read flat).
+    public enum Dyn { None, BodySlam, SecondWind, Entrench, Bully, TimesUp, Rend }
 
     public struct Enemy
     {
@@ -114,7 +116,8 @@ public static class TurnSim
         public bool XCost;     // X-cost card (Whirlwind): spends ALL energy, hits X = energy times
         public Dyn Dynamic = Dyn.None;
         public int DynParam;   // e.g. Second Wind's block-per-exhausted-card
-        public bool IsAttack => Damage > 0 || Dynamic == Dyn.BodySlam || Dynamic == Dyn.Bully;
+        public bool IsAttack => Damage > 0 || Dynamic == Dyn.BodySlam || Dynamic == Dyn.Bully
+                              || Dynamic == Dyn.TimesUp || Dynamic == Dyn.Rend;
     }
 
     public struct Result
@@ -449,11 +452,21 @@ public static class TurnSim
 
         int dmg = c.Damage;
         if (c.Dynamic == Dyn.BodySlam) dmg = p.Block;   // Body Slam: damage == current block
-        if (c.Dynamic == Dyn.Bully)                      // Bully: base + ExtraDamage × the TARGET's Vulnerable
+        if (c.Dynamic == Dyn.Bully || c.Dynamic == Dyn.TimesUp || c.Dynamic == Dyn.Rend)
         {
+            // base + ExtraDamage × a metric of the TARGET (Vulnerable / Doom / debuff-count). Any Vulnerable
+            // 1.5× is applied by HitEnemy on top, exactly as the game applies it after CalculatedDamage.
             int bt = target >= 0 ? target : FirstAlive(e);
-            int bvuln = (bt >= 0 && bt < e.Length) ? e[bt].Vulnerable : 0;
-            dmg = c.Damage + c.DynParam * bvuln;         // the 1.5× Vulnerable multiplier is applied by HitEnemy on top
+            int metric = 0;
+            if (bt >= 0 && bt < e.Length)
+                metric = c.Dynamic switch
+                {
+                    Dyn.Bully   => e[bt].Vulnerable,
+                    Dyn.TimesUp => e[bt].Doom,
+                    // Rend: non-temporary debuffs on the target the sim tracks (Vulnerable / Weak / Str-down).
+                    _           => (e[bt].Vulnerable > 0 ? 1 : 0) + (e[bt].Weak > 0 ? 1 : 0) + (e[bt].Strength < 0 ? 1 : 0),
+                };
+            dmg = c.Damage + c.DynParam * metric;
         }
         if (c.IsShiv && dmg > 0)                         // Accuracy (+all Shivs) / Phantom Blades (+first Shiv)
         {

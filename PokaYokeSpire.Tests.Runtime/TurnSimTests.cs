@@ -83,6 +83,25 @@ public class TurnSimTests
     }
 
     [Fact]
+    public void TimesUp_ScalesWithTargetDoom()
+    {
+        // Times Up: base 0 + ExtraDamage(1) × the target's Doom. Doom 5 → 5 damage (a naive read gives 0).
+        var timesUp = new Card { Name = "TimesUp", Cost = 2, Damage = 0, DynParam = 1, Dynamic = Dyn.TimesUp, AttackTarget = Tgt.OneEnemy };
+        var r = TurnSim.Solve(P(2), new[] { new TurnSim.Enemy { Hp = 100, Doom = 5 } }, new List<Card> { timesUp });
+        Assert.Equal(5, r.MaxDamage);
+    }
+
+    [Fact]
+    public void Rend_ScalesWithTargetDebuffCount()
+    {
+        // Rend: base 15 + ExtraDamage(5) × non-temporary debuffs on the target. Enemy Vulnerable (1 debuff):
+        // 15 + 5×1 = 20, then ×1.5 for Vulnerable = 30 (a naive read gives 15, then ×1.5 = 22).
+        var rend = new Card { Name = "Rend", Cost = 2, Damage = 15, DynParam = 5, Dynamic = Dyn.Rend, AttackTarget = Tgt.OneEnemy };
+        var r = TurnSim.Solve(P(2), new[] { E(100, vuln: 1) }, new List<Card> { rend });
+        Assert.Equal(30, r.MaxDamage);
+    }
+
+    [Fact]
     public void PlayerWeak_LowersYourDamage()
     {
         var r = TurnSim.Solve(P(1, weak: 1), new[] { E(100) }, new List<Card> { Strike(6) });
