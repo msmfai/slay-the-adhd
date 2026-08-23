@@ -303,8 +303,19 @@ public static class TurnSimReader
         else if (name == "DemonicShield") card.Dynamic = TurnSim.Dyn.Entrench;   // gain block = current block (doubles); −1 HP via HpLossVar
         else if (name == "Expose") card.RemoveEnemyBlock = true;                 // sets target's Block to 0 (+ Vulnerable via PowerVar)
         else if (name == "Dismantle") card.DoubleHitsIfTargetVulnerable = true;  // hits twice if the target is Vulnerable
+        else if (name == "MoltenFist") card.DoubleTargetVulnerable = true;        // after hitting, doubles the target's Vulnerable
         else if (name == "Resonance") { card.EnemyStrengthLoss = 1; card.EStrTarget = TurnSim.Tgt.AllEnemies; }   // all enemies −1 Strength (self +Str via PowerVar)
         else if (name == "FightMe") { card.EnemyStrengthLoss = -1; card.EStrTarget = TurnSim.Tgt.OneEnemy; }       // target GAINS 1 Strength (a downside)
+        else if (name == "Bully")                                                 // base + ExtraDamage × TARGET's Vulnerable
+        {
+            // The CalculatedDamage fallback above already set card.Damage = the calc base (Calculate(null) has
+            // 0 Vulnerable). Capture the per-Vulnerable ExtraDamage and make it a Dyn so the solver scales it
+            // by the target's Vulnerable at play time (the flat read misses that entirely).
+            card.Dynamic = TurnSim.Dyn.Bully;
+            if (cm.DynamicVars.TryGetValue("ExtraDamage", out var edv)) card.DynParam = (int)edv.BaseValue;
+            if (card.AttackTarget == TurnSim.Tgt.None) card.AttackTarget = TurnSim.Tgt.OneEnemy;
+            if (card.Hits < 1) card.Hits = 1;
+        }
 
         // Enchant damage/block is now folded into card.Damage/Block above; other enchant effects
         // (Corrupted's on-play self-damage, replay-count enchants like Clone, on-play hooks) are NOT

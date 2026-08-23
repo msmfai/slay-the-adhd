@@ -52,7 +52,7 @@ internal static class TurnAudit
 
         // Union of everything revealed this turn, and the models we've already folded in (by instance).
         public readonly List<TurnSim.Card> OmniCards = new();
-        public readonly HashSet<object> SeenModels = new();   // reference identity
+        public readonly HashSet<CardModel> SeenModels = new();   // reference identity — ALL raw cards seen (parsed or not)
         public TurnSim.Result OmniPred;               // lazily solved over OmniCards (see EnsureSolved)
         public bool OmniSolved;
 
@@ -300,6 +300,20 @@ internal static class TurnAudit
         int revealed = t.OmniCards.Count - t.Snap.Hand.Count;
         sb.AppendLine($"REVEALED union hand ({t.OmniCards.Count}, +{(revealed < 0 ? 0 : revealed)} drawn/created — the re-solve saw ALL of these):");
         foreach (var c in t.OmniCards) sb.AppendLine("    " + RenderCard(c));
+        // Every RAW card seen this turn (parsed or not). A card here that's absent from the union above is one
+        // the reader DROPPED (ReadCard returned null) — its effect is missing from the sim, a prime suspect.
+        sb.AppendLine($"RAW cards seen ({t.SeenModels.Count}) — game DynamicVars (a card missing from the union above was DROPPED by the reader):");
+        foreach (var cm in t.SeenModels)
+        {
+            var line = new StringBuilder($"    {SafeName(cm)} type={SafeType(cm)} vars={{");
+            try { foreach (var v in cm.DynamicVars.Values) line.Append($"{v.Name}={v.BaseValue},"); } catch { }
+            line.Append("} keywords={");
+            try { foreach (var k in cm.Keywords) line.Append(k).Append(','); } catch { }
+            line.Append("} tags={");
+            try { foreach (var tg in cm.Tags) line.Append(tg).Append(','); } catch { }
+            line.Append('}');
+            sb.AppendLine(line.ToString());
+        }
         sb.AppendLine($"enemies ({t.Snap.Enemies.Length}):");
         for (int i = 0; i < t.Snap.Enemies.Length; i++)
         {
@@ -347,6 +361,11 @@ internal static class TurnAudit
     private static CardType SafeType(CardModel cm)
     {
         try { return cm.Type; } catch { return CardType.Attack; }
+    }
+
+    private static string SafeName(CardModel cm)
+    {
+        try { return cm.GetType().Name; } catch { return "?"; }
     }
 
     private static int SafeHp(Creature? c)
