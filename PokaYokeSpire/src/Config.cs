@@ -33,6 +33,12 @@ public class Config : SimpleModConfig
     /// Keys offered for the tuning/debug menu toggle (mapped to Godot keys in TuningPanel).
     public enum ToggleMenuKey { F9, F8, F7, F6, F10, F11, F12, Insert, Home, Backtick }
 
+    /// SELF-AUDIT (debug) — each turn, compare what ACTUALLY happened (real damage dealt / HP lost) to what
+    /// the gems predicted, and write a full-state mismatch report to logs/mismatch-*.txt whenever reality
+    /// violates the prediction (you dealt more than the max it claimed, or lost less than the min). Turns
+    /// normal play into a self-testing loop: just play, and the mod harvests its own bugs. Needs DebugLogging.
+    public static bool TurnAudit { get; set; } = false;
+
     [ConfigSection("guards")]
     /// Confirm when ending turn with unspent energy AND a playable card in hand.
     public static bool GuardEndTurnEnergy { get; set; } = true;

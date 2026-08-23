@@ -48,6 +48,7 @@ internal static class TurnSimDriverFeature
     private static void Submit(CombatState state)
     {
         var sim = TurnSimReader.Read(state);
+        TurnAudit.Observe(sim, state);   // self-audit: freeze prediction / measure actuals / flag mismatches
         var p = IncomingDamage.Compute(state);
         // do-nothing HP loss = end the turn NOW, play nothing. Use the sim's own HpLost so it and the min
         // share one block-correct model (blockable Burn/Toxic absorbed by block; unblockable added after).
