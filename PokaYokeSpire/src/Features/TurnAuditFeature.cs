@@ -53,12 +53,12 @@ internal static class TurnAudit
         // Union of everything revealed this turn, and the models we've already folded in (by instance).
         public readonly List<TurnSim.Card> OmniCards = new();
         public readonly HashSet<object> SeenModels = new();   // reference identity
-        public TurnSim.Result OmniPred;               // lazily solved over OmniCards (see EnsureOmni)
+        public TurnSim.Result OmniPred;               // lazily solved over OmniCards (see EnsureSolved)
         public bool OmniSolved;
 
         // ── confound annotations ── Drew/Created are informational (the re-solve handles them); Potion/Healed
         // are true suppressors (non-card effects the re-solve can't account for).
-        public int HandStartCount, DrawPileStart, LastDrawCount, TotalCardsStart, PotionCountStart;
+        public int HandStartCount, DrawPileStart, LastDrawCount, TotalCardsStart, PotionCountStart, BaseDiscExh;
         public bool Drew, Created, UsedPotion, Healed;
 
         public bool OffenseDone;
@@ -67,41 +67,45 @@ internal static class TurnAudit
     }
 
     private static bool _subscribed;
-    private static CombatSide _lastSide = CombatSide.None;
-    private static bool _armed;   // a new player turn began; freeze once the hand is drawn and we may act
+    private static int _lastArmedRound = int.MinValue;   // arm exactly once per RoundNumber (no mid-turn re-arm)
+    private static bool _armed;   // re-capturing the pre-play hand; locks on your first play of the turn
     private static Turn? _cur;
 
     // ── entry point, called from TurnSimDriverFeature.Submit on every combat-state change ──
     public static void Observe(TurnSimReader.Snapshot? snap, CombatState state)
     {
-        if (!Config.TurnAudit) { _cur = null; _lastSide = CombatSide.None; _armed = false; return; }
+        if (!Config.TurnAudit) { _cur = null; _lastArmedRound = int.MinValue; _armed = false; return; }
         try
         {
             EnsureSubscribed();
             var side = state.CurrentSide;
+            if (side != CombatSide.Player) return;   // only the player's own turn is audited
 
-            // A new player turn begins: finalise the previous turn's DEFENSE and arm — but do NOT freeze yet.
-            // The turn-start sequence resets energy, THEN draws the hand, THEN enables actions; freezing now
-            // would capture an empty hand (⇒ MaxPerEnemy all zero, and every drawn card mis-flagged as a draw).
-            if (side == CombatSide.Player && _lastSide != CombatSide.Player)
+            // Arm ONCE per round (RoundNumber is stable within a turn, so CurrentSide flickering during card
+            // resolution can't re-arm us mid-turn — the bug that was re-freezing a played-down hand).
+            int round = RoundNumber(state);
+            if (round != _lastArmedRound)
             {
-                FinalizeDefenseAndSummary(state);
+                FinalizeDefenseAndSummary(state);   // close out the turn that just ended
                 _cur = null;
                 _armed = true;
+                _lastArmedRound = round;
             }
-            // Freeze the instant the hand is drawn and the player may act (PlayerActionsDisabled == false).
-            if (_armed && side == CombatSide.Player && snap != null
-                && !ActionsDisabled() && ReadCounts(state).Hand > 0)
+
+            // While armed, RE-CAPTURE the hand each observation (it grows as the turn-start draw lands) and
+            // LOCK the moment you first play a card — so the frozen hand is the full pre-play hand, never a
+            // partial mid-draw one nor a played-down one. (Observes are event-driven; the fully-drawn hand may
+            // emit no "stable" event of its own, so we track growth instead of waiting for stability.)
+            if (_armed && snap != null)
             {
-                _cur = Freeze(snap, state);
-                _armed = false;
+                var c = ReadCounts(state);
+                if (_cur != null && Played(c, _cur)) _armed = false;   // first play → lock the last pre-play freeze
+                else _cur = Freeze(snap, state, c);                    // re-capture the (still-growing) hand
             }
 
-            // While it's our turn: fold newly-revealed cards into the union and track the confounds.
-            if (side == CombatSide.Player && _cur != null)
+            // After the freeze is locked, fold genuinely mid-turn-revealed cards into the union.
+            if (_cur != null && !_armed)
                 Accumulate(_cur, state);
-
-            _lastSide = side;
         }
         catch (Exception e) { DebugLog.Error("TurnAudit.Observe", e); }
     }
@@ -112,8 +116,21 @@ internal static class TurnAudit
         var cm = CombatManager.Instance;
         if (cm == null) return;
         cm.PlayerEndedTurn += OnPlayerEndedTurn;
+        // New combat re-uses RoundNumber 1, so reset the arming gate at each combat start.
+        cm.CombatSetUp += _ => { _lastArmedRound = int.MinValue; _cur = null; _armed = false; };
         _subscribed = true;
     }
+
+    private static int RoundNumber(CombatState state)
+    {
+        try { return state.RoundNumber; } catch { return int.MinValue; }
+    }
+
+    // Has a card left your hand since the freeze? (a play sends it to discard/exhaust, or removes a power, or
+    // just shrinks the hand). Sensitive on purpose: locking a hair early only makes omni fold the rest back
+    // in via Accumulate, whereas missing a play would drop a played card from the union.
+    private static bool Played(in Counts c, Turn t)
+        => c.Hand < t.HandStartCount || (c.Disc + c.Exh) > t.BaseDiscExh || c.Total < t.TotalCardsStart;
 
     // Fires the instant the player commits End Turn — enemy HP now reflects your plays, before enemies act.
     private static void OnPlayerEndedTurn(Player _, bool __)
@@ -123,16 +140,12 @@ internal static class TurnAudit
         catch (Exception e) { DebugLog.Error("TurnAudit.OnPlayerEndedTurn", e); }
     }
 
-    private static Turn Freeze(TurnSimReader.Snapshot snap, CombatState state)
+    // Cheap: just snapshot the pre-play state (re-run each observation until the first play locks it). The
+    // predictions are solved lazily once at finalize (EnsureSolved), so re-capturing costs no solver time.
+    private static Turn Freeze(TurnSimReader.Snapshot snap, CombatState state, in Counts c)
     {
-        TurnSim.Result pred;
-        try { pred = TurnSim.Solve(snap.Player, snap.Enemies, snap.Hand, nodeCap: 200000); }
-        catch (Exception e) { DebugLog.Error("TurnAudit.Freeze/Solve", e); pred = default; }
-
-        var c = ReadCounts(state);
         var t = new Turn
         {
-            Pred = pred,
             Snap = snap,
             PlayerHpStart = PlayerHp(state),
             EnemyBaselineHp = new int[snap.EnemyRefs.Count],
@@ -142,6 +155,7 @@ internal static class TurnAudit
             LastDrawCount = c.Draw,
             TotalCardsStart = c.Total,
             PotionCountStart = c.Potions,
+            BaseDiscExh = c.Disc + c.Exh,
         };
         for (int i = 0; i < snap.EnemyRefs.Count; i++)
             t.EnemyBaselineHp[i] = SafeHp(snap.EnemyRefs[i]);
@@ -178,13 +192,16 @@ internal static class TurnAudit
         }
     }
 
-    // Solve over the revealed union — lazily, once (offense finalises first, defense reuses it).
-    private static void EnsureOmni(Turn t)
+    // Solve both predictions lazily, once (offense finalises first, defense reuses them): the frozen hand (for
+    // the report's before/after) and the revealed union (the authoritative bound the checks use).
+    private static void EnsureSolved(Turn t)
     {
         if (t.OmniSolved) return;
         t.OmniSolved = true;
+        try { t.Pred = TurnSim.Solve(t.Snap.Player, t.Snap.Enemies, t.Snap.Hand, nodeCap: 200000); }
+        catch (Exception e) { DebugLog.Error("TurnAudit.EnsureSolved/frozen", e); t.Pred = default; }
         try { t.OmniPred = TurnSim.Solve(t.Snap.Player, t.Snap.Enemies, t.OmniCards, nodeCap: 200000); }
-        catch (Exception e) { DebugLog.Error("TurnAudit.EnsureOmni/Solve", e); t.OmniPred = t.Pred; }
+        catch (Exception e) { DebugLog.Error("TurnAudit.EnsureSolved/omni", e); t.OmniPred = t.Pred; }
     }
 
     private static void FinalizeOffense()
@@ -192,7 +209,7 @@ internal static class TurnAudit
         var t = _cur;
         if (t == null || t.OffenseDone) return;
         t.OffenseDone = true;
-        EnsureOmni(t);
+        EnsureSolved(t);
 
         var refs = t.Snap.EnemyRefs;
         var fmax = t.Pred.MaxPerEnemy ?? Array.Empty<int>();
@@ -225,7 +242,7 @@ internal static class TurnAudit
     {
         var t = _cur;
         if (t == null) return;
-        EnsureOmni(t);
+        EnsureSolved(t);
 
         int lost = t.PlayerHpStart - PlayerHp(state);
         if (lost < 0) lost = 0;
@@ -310,14 +327,6 @@ internal static class TurnAudit
         catch { return 0; }
     }
 
-    // True while the game is mid-animation / resolving — the hand isn't yet the player's to act on. Goes false
-    // once the turn-start draw finishes; we read it only while armed, so we freeze the fully-drawn hand.
-    private static bool ActionsDisabled()
-    {
-        try { return CombatManager.Instance?.PlayerActionsDisabled ?? true; }
-        catch { return true; }
-    }
-
     private static bool HasPower(CombatState state, string powerTypeName)
     {
         try
@@ -346,8 +355,15 @@ internal static class TurnAudit
         catch { return 0; }
     }
 
-    // Pile SIZES (Hand/Draw), every card in combat (Total, grows only on creation), and filled potion slots.
-    private static (int Hand, int Draw, int Total, int Potions) ReadCounts(CombatState state)
+    private readonly struct Counts
+    {
+        public readonly int Hand, Draw, Disc, Exh, Potions;
+        public Counts(int hand, int draw, int disc, int exh, int potions) { Hand = hand; Draw = draw; Disc = disc; Exh = exh; Potions = potions; }
+        public int Total => Hand + Draw + Disc + Exh;   // every card in combat; grows only when cards are created
+    }
+
+    // Pile SIZES + filled potion slots, read together each observation.
+    private static Counts ReadCounts(CombatState state)
     {
         int hand = 0, draw = 0, disc = 0, exh = 0, pot = 0;
         try
@@ -364,7 +380,7 @@ internal static class TurnAudit
             if (me?.Potions != null) foreach (var po in me.Potions) if (po != null) pot++;
         }
         catch { }
-        return (hand, draw, hand + draw + disc + exh, pot);
+        return new Counts(hand, draw, disc, exh, pot);
     }
 
     private static string Stamp() => DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
